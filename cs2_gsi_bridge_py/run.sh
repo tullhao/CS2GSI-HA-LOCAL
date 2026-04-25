@@ -2,4 +2,4 @@
 set -e
 
 cd /app
-exec python3 /app/app/main.py
+exec /opt/venv/bin/python /app/app/main.py
