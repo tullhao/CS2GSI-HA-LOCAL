@@ -82,3 +82,49 @@ Read the docs in `docs/` in this order:
 4. `docs/INSTALL_HYBRID.md`
 5. `docs/AUTOSTART_WINDOWS.md`
 6. `docs/GITHUB_UPDATE.md`
+
+## Quick answer: how to install the Home Assistant package file
+
+The package file is **not** auto-installed by the add-on repository.  
+You must copy it manually into your Home Assistant config folder.
+
+### Package install path
+Copy:
+
+- `home_assistant/packages/cs2_led_packages.yaml`
+
+to:
+
+- `/config/packages/cs2_led_packages.yaml`
+
+### Make sure packages are enabled
+In your Home Assistant `configuration.yaml`:
+
+```yaml
+homeassistant:
+  packages: !include_dir_named packages
+```
+
+### Then restart Home Assistant
+
+If you do **not** want packages, use the manual YAML files instead:
+
+- `home_assistant/manual/scripts.yaml`
+- `home_assistant/manual/automations.yaml`
+
+## Important about automation/script import
+
+Home Assistant does **not** auto-import scripts and automations from the add-on repo.  
+There are only 2 clean ways:
+
+1. **Package mode**  
+   Copy `cs2_led_packages.yaml` to `/config/packages/`
+
+2. **Manual YAML mode**  
+   Copy:
+   - `scripts.yaml`
+   - `automations.yaml`
+
+   into your file-based HA setup
+
+The add-on repository installation itself only installs the add-on.
