@@ -72,3 +72,11 @@ This bundle already includes:
 - until freezetime resets the context
 
 It uses the winner information from the raw MQTT state if the corresponding winner sensor exists.
+
+
+## Package mode note
+If you use package mode, edit Home Assistant logic only in `/homeassistant/packages/cs2_led_packages.yaml`. Do not use the UI “Migrate” button for package-managed scripts or automations.
+
+
+## Cleanup old HA logic first
+Before enabling the package, disable or remove older `TVLED` / previous `CS2 Bridge` UI automations and scripts, otherwise you can get duplicate triggers and wrong colors.
