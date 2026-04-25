@@ -1,5 +1,5 @@
 name: "CS2 GSI Bridge (Python hybrid)"
-version: "0.3.12"
+version: "0.3.13"
 slug: "cs2_gsi_bridge_py"
 description: "Receives Counter-Strike 2 GSI posts, publishes every incoming state to MQTT, and exposes derived light pulse/color entities."
 url: "https://github.com/tullhao/CS2GSI-HA-LOCAL"
