@@ -33,7 +33,7 @@ cs2_bridge_apply_led_packages_state:
 
         - conditions:
             - condition: template
-              value_template: "{{ round_phase in ['over', 'gameover'] and win_team == 'CT' }}"
+              value_template: "{{ round_phase in ['over', 'gameover'] and light_mode == 'steady' and light_color == 'blue' }}"
           sequence:
             - service: light.turn_on
               target:
@@ -44,7 +44,7 @@ cs2_bridge_apply_led_packages_state:
 
         - conditions:
             - condition: template
-              value_template: "{{ round_phase in ['over', 'gameover'] and win_team == 'T' }}"
+              value_template: "{{ round_phase in ['over', 'gameover'] and light_mode == 'steady' and light_color == 'green' }}"
           sequence:
             - service: light.turn_on
               target:
@@ -225,7 +225,7 @@ cs2_bridge_restore_context_led_packages:
 
         - conditions:
             - condition: template
-              value_template: "{{ round_phase in ['over', 'gameover'] and win_team == 'CT' }}"
+              value_template: "{{ round_phase in ['over', 'gameover'] and light_mode == 'steady' and light_color == 'blue' }}"
           sequence:
             - service: light.turn_on
               target:
@@ -237,7 +237,7 @@ cs2_bridge_restore_context_led_packages:
 
         - conditions:
             - condition: template
-              value_template: "{{ round_phase in ['over', 'gameover'] and win_team == 'T' }}"
+              value_template: "{{ round_phase in ['over', 'gameover'] and light_mode == 'steady' and light_color == 'green' }}"
           sequence:
             - service: light.turn_on
               target:

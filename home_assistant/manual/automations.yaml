@@ -145,14 +145,21 @@
           - script.cs2_bridge_low_hp_team_breath_led_packages
           - script.cs2_bridge_critical_hp_red_breath_led_packages
           - script.cs2_bridge_burning_flicker_led_packages
+
     - service: light.turn_on
       target:
         entity_id: light.cs2gsi
       data:
         brightness_pct: 100
         rgb_color: [255, 0, 0]
-    - delay:
-        seconds: 5
+
+    - wait_for_trigger:
+        - platform: state
+          entity_id: sensor.cs2_gsi_bridge_cs2_gsi_bridge_round_phase
+          to: "freezetime"
+      timeout: "00:01:00"
+      continue_on_timeout: true
+
     - service: script.turn_on
       target:
         entity_id: script.cs2_bridge_restore_context_led_packages
@@ -182,20 +189,15 @@
     - platform: numeric_state
       entity_id: sensor.cs2_gsi_bridge_cs2_gsi_bridge_player_state_burning
       above: 0
-  condition:
-    - condition: numeric_state
-      entity_id: sensor.cs2_gsi_bridge_cs2_gsi_bridge_player_state_flashed
-      below: 1
-    - condition: template
-      value_template: "{{ states('sensor.cs2_gsi_bridge_cs2_gsi_bridge_light_mode') | lower not in ['blink'] }}"
-    - condition: template
-      value_template: "{{ states('sensor.cs2_gsi_bridge_cs2_gsi_bridge_round_bomb') | lower not in ['defused', 'exploded'] }}"
   action:
     - service: script.turn_off
       target:
         entity_id:
+          - script.cs2_bridge_restore_context_led_packages
+          - script.cs2_bridge_apply_led_packages_state
           - script.cs2_bridge_low_hp_team_breath_led_packages
           - script.cs2_bridge_critical_hp_red_breath_led_packages
+
     - service: script.turn_on
       target:
         entity_id: script.cs2_bridge_burning_flicker_led_packages
@@ -211,6 +213,7 @@
     - service: script.turn_off
       target:
         entity_id: script.cs2_bridge_burning_flicker_led_packages
+
     - service: script.turn_on
       target:
         entity_id: script.cs2_bridge_restore_context_led_packages

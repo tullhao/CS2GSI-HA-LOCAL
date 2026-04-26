@@ -34,7 +34,7 @@ script:
 
           - conditions:
               - condition: template
-                value_template: "{{ round_phase in ['over', 'gameover'] and win_team == 'CT' }}"
+                value_template: "{{ round_phase in ['over', 'gameover'] and light_mode == 'steady' and light_color == 'blue' }}"
             sequence:
               - service: light.turn_on
                 target:
@@ -45,7 +45,7 @@ script:
 
           - conditions:
               - condition: template
-                value_template: "{{ round_phase in ['over', 'gameover'] and win_team == 'T' }}"
+                value_template: "{{ round_phase in ['over', 'gameover'] and light_mode == 'steady' and light_color == 'green' }}"
             sequence:
               - service: light.turn_on
                 target:
@@ -226,7 +226,7 @@ script:
 
           - conditions:
               - condition: template
-                value_template: "{{ round_phase in ['over', 'gameover'] and win_team == 'CT' }}"
+                value_template: "{{ round_phase in ['over', 'gameover'] and light_mode == 'steady' and light_color == 'blue' }}"
             sequence:
               - service: light.turn_on
                 target:
@@ -238,7 +238,7 @@ script:
 
           - conditions:
               - condition: template
-                value_template: "{{ round_phase in ['over', 'gameover'] and win_team == 'T' }}"
+                value_template: "{{ round_phase in ['over', 'gameover'] and light_mode == 'steady' and light_color == 'green' }}"
             sequence:
               - service: light.turn_on
                 target:
@@ -716,31 +716,38 @@ automation:
           - stop: Nicht im Bombtimer-Modus
     mode: restart
 
-  - id: cs2_bridge_bomb_exploded_rot_kurz_led_packages
-    alias: CS2 Bridge - Bomb exploded rot kurz LED Packages
-    trigger:
-      - platform: state
-        entity_id: sensor.cs2_gsi_bridge_cs2_gsi_bridge_round_bomb
-        to: "exploded"
-    action:
-      - service: script.turn_off
-        target:
-          entity_id:
-            - script.cs2_bridge_low_hp_team_breath_led_packages
-            - script.cs2_bridge_critical_hp_red_breath_led_packages
-            - script.cs2_bridge_burning_flicker_led_packages
-      - service: light.turn_on
-        target:
-          entity_id: light.cs2gsi
-        data:
-          brightness_pct: 100
-          rgb_color: [255, 0, 0]
-      - delay:
-          seconds: 5
-      - service: script.turn_on
-        target:
-          entity_id: script.cs2_bridge_restore_context_led_packages
-    mode: restart
+- id: cs2_bridge_bomb_exploded_rot_kurz_led_packages
+  alias: CS2 Bridge - Bomb exploded rot kurz LED Packages
+  trigger:
+    - platform: state
+      entity_id: sensor.cs2_gsi_bridge_cs2_gsi_bridge_round_bomb
+      to: "exploded"
+  action:
+    - service: script.turn_off
+      target:
+        entity_id:
+          - script.cs2_bridge_low_hp_team_breath_led_packages
+          - script.cs2_bridge_critical_hp_red_breath_led_packages
+          - script.cs2_bridge_burning_flicker_led_packages
+
+    - service: light.turn_on
+      target:
+        entity_id: light.cs2gsi
+      data:
+        brightness_pct: 100
+        rgb_color: [255, 0, 0]
+
+    - wait_for_trigger:
+        - platform: state
+          entity_id: sensor.cs2_gsi_bridge_cs2_gsi_bridge_round_phase
+          to: "freezetime"
+      timeout: "00:01:00"
+      continue_on_timeout: true
+
+    - service: script.turn_on
+      target:
+        entity_id: script.cs2_bridge_restore_context_led_packages
+  mode: restart
 
   - id: cs2_bridge_bomb_defused_blau_blinken_led_packages
     alias: CS2 Bridge - Bomb defused blau blinken LED Packages
@@ -760,45 +767,41 @@ automation:
           entity_id: script.cs2_bridge_defused_blue_blink_led_packages
     mode: restart
 
-  - id: cs2_bridge_burning_start_led_packages
-    alias: CS2 Bridge - Burning Start LED Packages
-    trigger:
-      - platform: numeric_state
-        entity_id: sensor.cs2_gsi_bridge_cs2_gsi_bridge_player_state_burning
-        above: 0
-    condition:
-      - condition: numeric_state
-        entity_id: sensor.cs2_gsi_bridge_cs2_gsi_bridge_player_state_flashed
-        below: 1
-      - condition: template
-        value_template: "{{ states('sensor.cs2_gsi_bridge_cs2_gsi_bridge_light_mode') | lower not in ['blink'] }}"
-      - condition: template
-        value_template: "{{ states('sensor.cs2_gsi_bridge_cs2_gsi_bridge_round_bomb') | lower not in ['defused', 'exploded'] }}"
-    action:
-      - service: script.turn_off
-        target:
-          entity_id:
-            - script.cs2_bridge_low_hp_team_breath_led_packages
-            - script.cs2_bridge_critical_hp_red_breath_led_packages
-      - service: script.turn_on
-        target:
-          entity_id: script.cs2_bridge_burning_flicker_led_packages
-    mode: restart
+- id: cs2_bridge_burning_start_led_packages
+  alias: CS2 Bridge - Burning Start LED Packages
+  trigger:
+    - platform: numeric_state
+      entity_id: sensor.cs2_gsi_bridge_cs2_gsi_bridge_player_state_burning
+      above: 0
+  action:
+    - service: script.turn_off
+      target:
+        entity_id:
+          - script.cs2_bridge_restore_context_led_packages
+          - script.cs2_bridge_apply_led_packages_state
+          - script.cs2_bridge_low_hp_team_breath_led_packages
+          - script.cs2_bridge_critical_hp_red_breath_led_packages
 
-  - id: cs2_bridge_burning_ende_led_packages
-    alias: CS2 Bridge - Burning Ende LED Packages
-    trigger:
-      - platform: numeric_state
-        entity_id: sensor.cs2_gsi_bridge_cs2_gsi_bridge_player_state_burning
-        below: 1
-    action:
-      - service: script.turn_off
-        target:
-          entity_id: script.cs2_bridge_burning_flicker_led_packages
-      - service: script.turn_on
-        target:
-          entity_id: script.cs2_bridge_restore_context_led_packages
-    mode: restart
+    - service: script.turn_on
+      target:
+        entity_id: script.cs2_bridge_burning_flicker_led_packages
+  mode: restart
+
+- id: cs2_bridge_burning_ende_led_packages
+  alias: CS2 Bridge - Burning Ende LED Packages
+  trigger:
+    - platform: numeric_state
+      entity_id: sensor.cs2_gsi_bridge_cs2_gsi_bridge_player_state_burning
+      below: 1
+  action:
+    - service: script.turn_off
+      target:
+        entity_id: script.cs2_bridge_burning_flicker_led_packages
+
+    - service: script.turn_on
+      target:
+        entity_id: script.cs2_bridge_restore_context_led_packages
+  mode: restart
 
   - id: cs2_bridge_flashed_kurzer_flash_led_packages
     alias: CS2 Bridge - Flashed kurzer Flash LED Packages
