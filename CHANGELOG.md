@@ -1,5 +1,12 @@
 # Changelog
-
+## 0.3.15
+- finalized combined HA + local setup
+- fixed HA package mode behavior
+- fixed exploded hold until freezetime
+- fixed round-end winner colors
+- fixed HA burning behavior
+- updated addon build files
+- updated docs for File Editor, package install, local install, hybrid install, and autostart
 ## 0.3.14
 - finalized Home Assistant package mode setup
 - added idiot-proof installation guidance for Home Assistant, local-only, and hybrid setups
