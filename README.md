@@ -1,4 +1,6 @@
-# CS2 LED Packages v0.3.12
+# CS2GSI-HA-LOCAL v0.3.15
+
+Combined Home Assistant + Local OpenRGB package for HA-only, local-only, and hybrid setups.
 
 Complete bundle for:
 
