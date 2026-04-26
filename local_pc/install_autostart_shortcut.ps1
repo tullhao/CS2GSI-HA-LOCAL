@@ -1,4 +1,3 @@
-\
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $vbsPath = Join-Path $scriptDir 'start_cs2_led_everything_hidden.vbs'
 $startupFolder = [Environment]::GetFolderPath('Startup')
