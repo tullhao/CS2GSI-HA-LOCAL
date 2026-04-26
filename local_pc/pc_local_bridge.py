@@ -1,4 +1,3 @@
-
 import json
 import threading
 import time
@@ -36,7 +35,7 @@ def load_config() -> dict[str, Any]:
         "ha_forward_url": "http://192.168.178.111:3001/",
         "openrgb_host": "127.0.0.1",
         "openrgb_port": 6742,
-        "openrgb_device_name_contains": ["Commander Pro"],
+        "openrgb_device_name_contains": [],
         "client_name": "CS2 Local RGB Bridge",
         "enable_forward_to_ha": True,
         "log_payloads": False,
@@ -284,7 +283,7 @@ def derive_context(data: dict[str, Any], now: float, ignore_flash: bool = False)
     if exploded:
         return ("exploded", team)
 
-    if round_phase in ("over", "gameover") and win_team in ("CT", "T"):
+    if round_phase in ("over", "gameover") and win_team in ("CT", "T") and not exploded and not defused:
         return ("round_win", win_team)
 
     if now < damage_until:
@@ -319,8 +318,8 @@ def blink_worker():
 
     effect_phase = 0
     next_effect = 0.0
-    exploded_until = 0.0
     defused_until = 0.0
+    exploded_hold_active = False
 
     while True:
         time.sleep(0.02)
@@ -333,10 +332,14 @@ def blink_worker():
         if not data:
             bomb_pulse_state = False
             next_flip = 0.0
+            exploded_hold_active = False
             turn_devices_off()
             continue
 
         effect, team = derive_context(data, now)
+        round_phase = str(deep_get(data, "round", "phase", default="") or "").lower()
+        round_bomb = str(deep_get(data, "round", "bomb", default="") or "").lower()
+        bomb_state = str(deep_get(data, "bomb", "state", default=round_bomb) or "").lower()
 
         if effect == "bomb_blink":
             countdown = get_bomb_time_left(data, now)
@@ -362,11 +365,15 @@ def blink_worker():
         bomb_pulse_state = False
         next_flip = 0.0
 
-        if effect == "exploded":
-            exploded_until = max(exploded_until, now + 5.0)
-        if now < exploded_until:
-            set_devices_color(255, 0, 0)
-            continue
+        if effect == "exploded" or bomb_state == "exploded" or round_bomb == "exploded":
+            exploded_hold_active = True
+
+        if exploded_hold_active:
+            if round_phase == "freezetime":
+                exploded_hold_active = False
+            else:
+                set_devices_color(255, 0, 0)
+                continue
 
         if effect == "defused":
             defused_until = max(defused_until, now + 3.0)
