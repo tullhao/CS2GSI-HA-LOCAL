@@ -6,7 +6,7 @@ Perfect for LAN parties, Events or to be full aware of the situation
 
 # CS2GSI-HA-LOCAL v0.3.15 Uses VALVE official GSI 
 
-Combined Home Assistant + Local OpenRGB package for HA-only, local-only, and hybrid setups.
+Combined Home Assistant + Local OpenRGB package for HA-only, local-only, and/or hybrid setups.
 
 Complete bundle for:
 
