@@ -1,4 +1,6 @@
-# CS2GSI-HA-LOCAL v0.3.15
+CONTROL YOUR RGB WITH CS2 Game states.   äääCtiOn
+
+# CS2GSI-HA-LOCAL v0.3.15 Uses VALVE official GSI 
 
 Combined Home Assistant + Local OpenRGB package for HA-only, local-only, and hybrid setups.
 
