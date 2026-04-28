@@ -1,6 +1,8 @@
 CONTROL YOUR RGB LED'S WITH CS2 Game states.   äääCtiOn
 
-FANS, GPU, KEYBOARD, MAINBOARD, MOUSE RGB'S ETC.
+FANS, GPU, KEYBOARD, MAINBOARD, MOUSE RGB'S OR LIGHTS FROM YOUR HOME :)
+
+Perfect for lan parties or for hardcore flex
 
 # CS2GSI-HA-LOCAL v0.3.15 Uses VALVE official GSI 
 
