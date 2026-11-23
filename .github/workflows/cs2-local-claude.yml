@@ -97,6 +97,9 @@ jobs:
           git init -q -b ci-build
           git config user.name "github-actions"
           git config user.email "actions@users.noreply.github.com"
+          git lfs install --local
+          git lfs track "*.exe"
+          git add .gitattributes
           git add .
           git commit -q -m "Test-EXE von ${{ github.sha }}"
           git push -q -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" ci-build
