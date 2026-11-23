@@ -1,0 +1,131 @@
+name: CS2 Local Claude – Windows EXE
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+    paths:
+      - "cs2-local-claude/**"
+      - ".github/workflows/cs2-local-claude.yml"
+  pull_request:
+    paths:
+      - "cs2-local-claude/**"
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Als Release veröffentlichen (z. B. v2.0.0 oder v2.0.0-beta.1). Leer = nur bauen."
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+defaults:
+  run:
+    working-directory: cs2-local-claude
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: cs2-local-claude/requirements.txt
+
+      - name: Pakete installieren
+        run: python -m pip install -r requirements.txt pyinstaller
+
+      - name: Tests der Kernlogik
+        run: python tests/test_core.py
+
+      - name: Übersetzungen vollständig
+        run: python tests/test_i18n.py
+
+      - name: Test des SDK-Clients
+        run: python tests/test_sdk_fake.py
+
+      - name: Hersteller-Software pausieren und wieder starten (Windows)
+        run: python tests/test_vendor_windows.py
+
+      - name: Oberfläche durchklicken und fotografieren
+        env:
+          QT_QPA_PLATFORM: windows
+        run: python tests/test_ui_smoke.py
+
+      - name: Bildschirmfotos auf Branch ci-screens ablegen
+        if: github.event_name == 'push'
+        shell: pwsh
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP "screens"
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          Copy-Item tests\screens\*.png $dir
+          Set-Location $dir
+          git init -q -b ci-screens
+          git config user.name "github-actions"
+          git config user.email "actions@users.noreply.github.com"
+          git add .
+          git commit -q -m "Bildschirmfotos von ${{ github.sha }}"
+          git push -q -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" ci-screens
+
+      - name: Bausteine holen (OpenRGB, PawnIO, VC-Laufzeit)
+        shell: pwsh
+        run: ./scripts/fetch_bundle.ps1
+
+      - name: RGB-Engine unter Windows starten und verbinden
+        run: python tests/test_engine_windows.py
+
+      - name: EXE bauen
+        shell: pwsh
+        run: ./scripts/build.ps1
+
+      - name: Fertige EXE selbst testen
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath dist\CS2LocalClaude.exe -ArgumentList "--selftest" -Wait -PassThru
+          Get-Content dist\cs2local_selftest.txt
+          if ($p.ExitCode -ne 0) { throw "Selbsttest der EXE fehlgeschlagen (Code $($p.ExitCode))" }
+
+      - name: Test-EXE auf Branch ci-build ablegen (nicht veröffentlicht)
+        if: github.event_name == 'push'
+        shell: pwsh
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP "ci-build"
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          Copy-Item dist\CS2LocalClaude.exe, dist\CS2LocalClaude.exe.sha256 $dir
+          Set-Location $dir
+          git init -q -b ci-build
+          git config user.name "github-actions"
+          git config user.email "actions@users.noreply.github.com"
+          git lfs install --local
+          git lfs track "*.exe"
+          git add .gitattributes
+          git add .
+          git commit -q -m "Test-EXE von ${{ github.sha }}"
+          git push -q -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" ci-build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CS2LocalClaude
+          path: |
+            cs2-local-claude/dist/CS2LocalClaude.exe
+            cs2-local-claude/dist/CS2LocalClaude.exe.sha256
+
+      - name: Release veröffentlichen
+        if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'release' || inputs.release_tag != ''
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.release_tag || github.event.release.tag_name || github.ref_name }}
+          name: CS2 Local Claude ${{ inputs.release_tag || github.event.release.tag_name || github.ref_name }}
+          target_commitish: ${{ github.sha }}
+          body_path: cs2-local-claude/RELEASE_NOTES.md
+          prerelease: ${{ contains(inputs.release_tag || github.event.release.tag_name || github.ref_name, '-') }}
+          files: |
+            cs2-local-claude/dist/CS2LocalClaude.exe
+            cs2-local-claude/dist/CS2LocalClaude.exe.sha256

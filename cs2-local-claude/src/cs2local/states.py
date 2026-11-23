@@ -1,0 +1,277 @@
+"""Übersetzt die rohen GSI-Daten von CS2 in aktive Licht-Zustände und kurze Ereignisse."""
+from __future__ import annotations
+
+import logging
+import threading
+import time
+
+from .effects import C4_TIMER
+
+log = logging.getLogger(__name__)
+
+
+def _num(value, default=0):
+    try:
+        return default if value in (None, "") else float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _weapons(player: dict) -> list:
+    return [w for w in (player.get("weapons") or {}).values() if isinstance(w, dict)]
+
+
+MATCHPOINT_SCORE = {"competitive": 12, "premier": 12, "scrimcomp2v2": 8}  # Runden bis zum Matchpoint
+
+
+def _active_weapon(player: dict) -> dict | None:
+    for weapon in (player.get("weapons") or {}).values():
+        if isinstance(weapon, dict) and weapon.get("state") in ("active", "reloading"):
+            return weapon
+    return None
+
+
+class StateDetector:
+    TIMEOUT = 35.0  # Sekunden ohne Daten -> CS2 gilt als nicht verbunden
+
+    def __init__(self, get_options):
+        self._get_options = get_options
+        self._lock = threading.Lock()
+        self._states: dict[str, float] = {}   # Zustand -> seit wann aktiv
+        self._alpha: dict[str, float] = {}    # Zustand -> Stärke 0..1
+        self._events: dict[str, float] = {}   # Ereignis -> Startzeit
+        self._prev: dict = {}
+        self._prev_own = False
+        self._my_team: str | None = None
+        self.last_update = 0.0
+        self.info: dict = {}
+        self._bomb_synced = False
+        self._bomb_log = (None, 0.0)  # (letzter Inhalt, Zeit) fürs Mitschreiben der Bomben-Daten
+
+    @property
+    def team(self) -> str | None:
+        return self._my_team
+
+    # ---------------------------------------------------------------- Eingang
+    def update(self, data: dict, now: float | None = None) -> None:
+        now = time.monotonic() if now is None else now
+        opts = self._get_options()
+        with self._lock:
+            self._update(data, now, opts)
+            self.last_update = now
+
+    def _fire(self, sid: str, now: float) -> None:
+        self._events[sid] = now
+        log.info("Ereignis: %s", sid)
+
+    def _update(self, data: dict, now: float, opts: dict) -> None:
+        provider = data.get("provider") or {}
+        player = data.get("player") or {}
+        mp = data.get("map") or {}
+        rnd = data.get("round") or {}
+        ps = player.get("state") or {}
+
+        own_id = provider.get("steamid")
+        is_own = bool(own_id) and player.get("steamid") == own_id
+        if is_own and player.get("team") in ("CT", "T"):
+            self._my_team = player["team"]
+        team = self._my_team
+
+        prev_rnd = self._prev.get("round") or {}
+        prev_mp = self._prev.get("map") or {}
+        prev_ps = (self._prev.get("player") or {}).get("state") or {}
+        ms = player.get("match_stats") or {}
+        prev_ms = (self._prev.get("player") or {}).get("match_stats") or {}
+
+        active: dict[str, float] = {}
+        in_game = bool(mp) and player.get("activity") != "menu"
+        health = int(_num(ps.get("health"))) if is_own and "health" in ps else None
+        bomb = rnd.get("bomb")
+
+        if not in_game:
+            active["idle"] = 1.0
+        else:
+            if team == "CT":
+                active["team_ct"] = 1.0
+            elif team == "T":
+                active["team_t"] = 1.0
+            else:
+                active["idle"] = 1.0
+
+            if mp.get("phase") == "warmup":
+                active["warmup"] = 1.0
+            elif mp.get("phase") == "intermission":
+                active["halftime"] = 1.0
+            elif rnd.get("phase") == "freezetime":
+                active["freezetime"] = 1.0
+            need = MATCHPOINT_SCORE.get(str(mp.get("mode") or "").lower())
+            if need and mp.get("phase") == "live":
+                scores = [_num((mp.get("team_ct") or {}).get("score")), _num((mp.get("team_t") or {}).get("score"))]
+                if max(scores) == need:
+                    active["matchpoint"] = 1.0
+
+            if player and (not is_own or health == 0):
+                active["dead"] = 1.0
+
+            if is_own and health:
+                crit = int(opts.get("critical_health_threshold", 15))
+                low = int(opts.get("low_health_threshold", 30))
+                if health <= crit:
+                    active["critical_health"] = 1.0
+                elif health <= low:
+                    active["low_health"] = 1.0
+                flashed = _num(ps.get("flashed"))
+                prev_flashed = _num(prev_ps.get("flashed")) if self._prev_own else 0
+                if flashed > 0 and (prev_flashed <= 0 or flashed > prev_flashed + 60):
+                    self._fire("flashed", now)  # jede Flashbang löst den Blitz aus, egal wie stark
+                burning = _num(ps.get("burning"))
+                if burning > 0:
+                    active["burning"] = max(0.4, min(1.0, burning / 255.0))
+                smoked = _num(ps.get("smoked"))
+                if smoked > 0:
+                    active["smoked"] = max(0.3, min(1.0, smoked / 255.0))
+                if not _num(ps.get("armor")):
+                    active["no_armor"] = 1.0
+                if any(str(w.get("type", "")).lower() == "c4" or w.get("name") == "weapon_c4" for w in _weapons(player)):
+                    active["carrying_bomb"] = 1.0
+                weapon = _active_weapon(player)
+                if weapon:
+                    wtype = str(weapon.get("type", "")).lower()
+                    if wtype == "knife":
+                        active["knife_out"] = 1.0
+                    elif wtype == "grenade":
+                        active["grenade_out"] = 1.0
+                    if weapon.get("state") == "reloading":
+                        active["reloading"] = 1.0
+                    else:
+                        clip, clip_max = weapon.get("ammo_clip"), weapon.get("ammo_clip_max")
+                        pct = float(opts.get("low_ammo_percent", 25))
+                        if clip is not None and clip_max and clip_max > 1 and clip * 100 <= clip_max * pct:
+                            active["low_ammo"] = 1.0
+
+            if bomb == "planted":
+                active["bomb_planted"] = 1.0
+                c4 = ps.get("health_c4_preview") if is_own else None
+                if c4 is not None and health and _num(c4, 1) <= 0:
+                    active["bomb_lethal"] = 1.0
+            elif bomb == "exploded":
+                active["bomb_exploded"] = 1.0  # bleibt bis zur nächsten Runde (wie im alten Bridge)
+
+            # Ereignisse: Übergänge im Vergleich zum letzten Paket
+            if self._prev:
+                if bomb == "defused" and prev_rnd.get("bomb") != "defused":
+                    self._fire("bomb_defused", now)
+                if rnd.get("phase") == "over" and prev_rnd.get("phase") != "over":
+                    win = rnd.get("win_team")
+                    if win and team:
+                        self._fire("round_won" if win == team else "round_lost", now)
+                if mp.get("phase") == "gameover" and prev_mp.get("phase") != "gameover" and team:
+                    mine = _num((mp.get("team_ct" if team == "CT" else "team_t") or {}).get("score"))
+                    other = _num((mp.get("team_t" if team == "CT" else "team_ct") or {}).get("score"))
+                    if mine != other:
+                        self._fire("match_won" if mine > other else "match_lost", now)
+                if self._prev_own and _num(prev_ps.get("health")) > 0 and (not is_own or health == 0) and player:
+                    self._fire("death", now)
+                if is_own and self._prev_own:
+                    kills, prev_kills = _num(ps.get("round_kills")), _num(prev_ps.get("round_kills"))
+                    if _num(ps.get("round_killhs")) > _num(prev_ps.get("round_killhs")):
+                        self._fire("headshot", now)
+                    elif kills > prev_kills:
+                        self._fire("kill", now)
+                    if kills > prev_kills and kills >= 3:
+                        self._fire({3: "triple_kill", 4: "quad_kill"}.get(int(kills), "ace"), now)
+                    if _num(ms.get("assists")) > _num(prev_ms.get("assists")):
+                        self._fire("assist", now)
+                    if _num(ms.get("mvps")) > _num(prev_ms.get("mvps")):
+                        self._fire("mvp", now)
+                    prev_health = _num(prev_ps.get("health"), None)
+                    if (health and prev_health is not None and health < prev_health
+                            and not _num(ps.get("flashed")) and "burning" not in active and bomb != "planted"):
+                        self._fire("damage", now)
+
+        if set(active) != set(self._states):
+            log.info("Situation: %s", ", ".join(sorted(active)))
+        self._states = {sid: self._states.get(sid, now) for sid in active}
+        self._sync_bomb_clock(data, now)
+        self._alpha = active
+        self._prev = data
+        self._prev_own = is_own
+        self.info = {
+            "map": mp.get("name"),
+            "map_phase": mp.get("phase"),
+            "round_phase": rnd.get("phase"),
+            "bomb": bomb,
+            "team": team,
+            "own": is_own,
+            "activity": player.get("activity"),
+            "health": health,
+            "armor": ps.get("armor") if is_own else None,
+            "c4_preview": ps.get("health_c4_preview") if is_own else None,
+        }
+
+    def _sync_bomb_clock(self, data: dict, now: float) -> None:
+        """C4-Uhr: Startzeit von „Bombe gelegt“ an den Countdown des Spiels angleichen, wenn CS2 ihn schickt.
+
+        CS2 meldet keine einzelnen Pieptöne, nur „gelegt“, „entschärft“, „explodiert“. Den Takt rechnet das Tool
+        selbst; wenn das Spiel die Restzeit mitschickt (phase_countdowns oder bomb.countdown), ist die Uhr exakt.
+        """
+        rnd = data.get("round") or {}
+        pc = data.get("phase_countdowns") or {}
+        bomb = data.get("bomb") or {}
+        # Mitschreiben, was wirklich ankommt (höchstens 2x pro Sekunde, Statuswechsel sofort)
+        content = (rnd.get("bomb"), pc.get("phase"), pc.get("phase_ends_in"), bomb.get("state"), bomb.get("countdown"))
+        last, last_t = self._bomb_log
+        if any(v is not None for v in (rnd.get("bomb"), bomb.get("state"))) or pc.get("phase") == "bomb":
+            if content != last and (content[0] != (last or (None,))[0] or now - last_t >= 0.5):
+                log.info("GSI-Bombe: round.bomb=%s | phase_countdowns=%s %s | bomb=%s %s", *content)
+                self._bomb_log = (content, now)
+        if "bomb_planted" not in self._states:
+            self._bomb_synced = False
+            return
+        # C4-Countdown vom Spiel (wie im alten Bridge: bomb.countdown, sonst phase_countdowns)
+        remaining = None
+        # (beim Entschärfen zählen beide die Entschärfzeit herunter – die gehört nicht zur C4-Uhr)
+        if bomb.get("countdown") not in (None, "") and bomb.get("state") in (None, "planted"):
+            remaining = _num(bomb.get("countdown"))
+        elif pc.get("phase") == "bomb" and pc.get("phase_ends_in") not in (None, ""):
+            remaining = _num(pc.get("phase_ends_in"))
+        if remaining is None or not 0 < remaining <= C4_TIMER:
+            return
+        # Jedes Paket liefert eine Schätzung der Legezeit; Pakete mit Verzögerung liegen später.
+        # Die früheste Schätzung ist die genaueste – so bleibt der Takt exakt und springt nicht hin und her.
+        estimate = now - (C4_TIMER - remaining)
+        current = self._states["bomb_planted"]
+        if not self._bomb_synced or current - 2.0 < estimate < current:
+            if not self._bomb_synced:
+                log.info("C4-Uhr nach Spiel-Countdown gestellt (%.2f s Restzeit, Korrektur %+.2f s)",
+                         remaining, estimate - current)
+            self._states["bomb_planted"] = estimate
+            self._bomb_synced = True
+
+    # ---------------------------------------------------------------- Ausgang
+    def connected(self, now: float | None = None) -> bool:
+        now = time.monotonic() if now is None else now
+        return self.last_update > 0 and now - self.last_update < self.TIMEOUT
+
+    def snapshot(self, now: float, states_cfg: dict) -> dict[str, tuple[float, float]]:
+        """Aktive Ebenen: Zustand -> (Alter in s, Stärke 0..1)."""
+        with self._lock:
+            if not self.connected(now):
+                return {"idle": (now, 1.0)}
+            out = {sid: (now - start, self._alpha.get(sid, 1.0)) for sid, start in self._states.items()}
+            planted = self._states.get("bomb_planted")
+            if planted is not None and now - planted >= 30.0:  # letzte 10 Sekunden bis zur Explosion
+                out["bomb_critical"] = (now - planted - 30.0, 1.0)
+            for sid, start in list(self._events.items()):
+                duration = float(states_cfg.get(sid, {}).get("duration") or 1.0)
+                age = now - start
+                if age > duration:
+                    del self._events[sid]
+                else:
+                    out[sid] = (age, 1.0)
+            return out
+
+    def active_names(self, now: float, states_cfg: dict) -> list[str]:
+        snap = self.snapshot(now, states_cfg)
+        ids = sorted(snap, key=lambda s: -states_cfg.get(s, {}).get("priority", 0))
+        return [states_cfg[s]["name"] for s in ids if s in states_cfg and states_cfg[s].get("enabled")]

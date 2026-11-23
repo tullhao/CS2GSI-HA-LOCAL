@@ -1,0 +1,10 @@
+.venv/
+build/
+dist/
+bundle/
+__pycache__/
+*.spec
+cs2local_settings.json
+cs2local.log
+cs2local_selftest.txt
+tests/screens/
