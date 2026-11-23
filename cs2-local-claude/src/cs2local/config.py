@@ -1,0 +1,160 @@
+"""Pfade, Standardwerte und das Speichern/Laden der Einstellungen (portabel, neben der EXE)."""
+from __future__ import annotations
+
+import copy
+import json
+import logging
+import sys
+from pathlib import Path
+
+APP_NAME = "CS2 Local Claude"
+VERSION = "2.0.0"
+
+log = logging.getLogger(__name__)
+
+
+def app_dir() -> Path:
+    """Ordner, in dem die EXE liegt (dort landen settings.json und das Log)."""
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parents[2]
+
+
+def resource_dir() -> Path:
+    """Ordner mit den eingebauten Bausteinen (in der EXE: entpackter Temp-Ordner)."""
+    meipass = getattr(sys, "_MEIPASS", None)
+    return Path(meipass) if meipass else app_dir() / "bundle"
+
+
+SETTINGS_FILE = app_dir() / "cs2local_settings.json"
+LOG_FILE = app_dir() / "cs2local.log"
+OPENRGB_DIR = resource_dir() / "openrgb"
+PAWNIO_SETUP = resource_dir() / "pawnio" / "PawnIO_setup.exe"
+
+EFFECTS = {
+    "solid": "Fest",
+    "blink": "Blinken",
+    "pulse": "Pulsieren",
+    "flicker": "Flackern",
+    "chase": "Lauflicht",
+    "fade": "Ausblenden",
+}
+
+# Standardwerte orientieren sich am bisherigen local_pc-Bridge (CT blau, T grün, Teamfarbe gedimmt im Spiel).
+# id, Name, Art, Farbe, Teamfarbe?, Effekt, Tempo (Hz), Dauer (s), Helligkeit (%), Priorität, Beschreibung
+_DEFAULT_STATES = [
+    ("idle", "Menü / Leerlauf", "state", (40, 40, 70), False, "pulse", 0.2, 0, 100, 0,
+     "CS2 ist nicht im Spiel (Hauptmenü oder nicht gestartet)."),
+    ("team_ct", "Team CT", "state", (0, 0, 255), False, "solid", 1.0, 0, 35, 10,
+     "Grundfarbe als Counter-Terrorist. Diese Farbe ist auch die „Teamfarbe“ für andere Situationen."),
+    ("team_t", "Team T", "state", (0, 255, 0), False, "solid", 1.0, 0, 35, 10,
+     "Grundfarbe als Terrorist. Diese Farbe ist auch die „Teamfarbe“ für andere Situationen."),
+    ("warmup", "Aufwärmphase", "state", (120, 120, 255), True, "pulse", 0.4, 0, 60, 15, "Warmup vor dem Match."),
+    ("freezetime", "Kaufphase", "state", (255, 255, 255), True, "solid", 1.0, 0, 100, 20,
+     "Freezetime zu Rundenbeginn: volle Teamfarbe."),
+    ("smoked", "In der Smoke", "state", (24, 24, 24), True, "solid", 1.0, 0, 12, 25, "Du stehst in einer Smoke."),
+    ("dead", "Tot / Zuschauer", "state", (30, 0, 0), False, "solid", 1.0, 0, 100, 30, "Du bist tot und schaust zu."),
+    ("low_ammo", "Munition knapp", "state", (255, 120, 0), False, "blink", 2.0, 0, 100, 32,
+     "Magazin der aktiven Waffe fast leer (Schwelle unter Optionen)."),
+    ("reloading", "Nachladen", "state", (0, 220, 255), False, "chase", 1.5, 0, 100, 34, "Während du nachlädst."),
+    ("low_health", "Wenig Leben", "state", (255, 255, 255), True, "pulse", 0.37, 0, 35, 40,
+     "Leben unter der Schwelle „Wenig Leben“: Teamfarbe pulsiert."),
+    ("critical_health", "Kritisches Leben", "state", (255, 0, 0), False, "pulse", 0.37, 0, 100, 42,
+     "Leben unter der Schwelle „Kritisch“: rot pulsierend."),
+    ("damage", "Treffer kassiert", "event", (255, 255, 255), True, "solid", 1.0, 0.5, 100, 45,
+     "Kurz volle Teamfarbe, wenn du Schaden nimmst."),
+    ("bomb_planted", "Bombe gelegt", "state", (255, 0, 0), False, "blink", 1.0, 0, 100, 50,
+     "Blinkt immer schneller, je näher die Explosion kommt."),
+    ("bomb_lethal", "Bombe wäre tödlich", "state", (170, 0, 255), False, "pulse", 3.0, 0, 100, 55,
+     "Neu in CS2 (health_c4_preview): Die Explosion würde dich an deiner Position töten."),
+    ("burning", "Brennend", "state", (255, 80, 0), False, "flicker", 5.0, 0, 100, 60, "Du stehst im Feuer (Molotov)."),
+    ("kill", "Kill", "event", (0, 255, 60), False, "fade", 1.0, 0.6, 100, 70, "Kurzer Effekt bei einem Kill."),
+    ("headshot", "Headshot", "event", (255, 0, 200), False, "fade", 1.0, 0.8, 100, 72,
+     "Kurzer Effekt bei einem Headshot-Kill."),
+    ("round_lost", "Runde verloren", "event", (60, 0, 0), False, "solid", 1.0, 4.0, 100, 74,
+     "Dein Team hat die Runde verloren."),
+    ("round_won", "Runde gewonnen", "event", (255, 255, 255), True, "solid", 1.0, 4.0, 100, 75,
+     "Dein Team hat die Runde gewonnen: volle Teamfarbe."),
+    ("bomb_defused", "Bombe entschärft", "event", (0, 0, 255), False, "blink", 1.67, 3.0, 100, 80,
+     "Die Bombe wurde entschärft: blau blinkend."),
+    ("bomb_exploded", "Bombe explodiert", "state", (255, 0, 0), False, "solid", 1.0, 0, 100, 80,
+     "Die Bombe ist explodiert: rot bis zur nächsten Runde."),
+    ("flashed", "Geblendet (Flash)", "state", (255, 255, 255), False, "solid", 1.0, 0, 100, 100,
+     "Weiss, so stark wie du geblendet bist."),
+]
+
+STATE_ORDER = [s[0] for s in _DEFAULT_STATES]
+STATE_KEYS = ("enabled", "color", "team_color", "effect", "speed", "duration", "intensity", "priority")
+
+DEFAULT_OPTIONS = {
+    "brightness": 100,
+    "fps": 20,
+    "low_health_threshold": 30,
+    "critical_health_threshold": 15,
+    "low_ammo_percent": 25,
+    "gsi_port": 3002,
+    "openrgb_port": 6742,
+}
+
+
+def default_states() -> dict:
+    out = {}
+    for sid, name, kind, color, team, effect, speed, duration, intensity, prio, desc in _DEFAULT_STATES:
+        out[sid] = {
+            "name": name, "kind": kind, "enabled": True, "color": list(color), "team_color": team,
+            "effect": effect, "speed": speed, "duration": duration, "intensity": intensity,
+            "priority": prio, "desc": desc,
+        }
+    return out
+
+
+def default_settings() -> dict:
+    return {
+        "version": 2,
+        "cs2_path": None,
+        "gsi_token": None,
+        "pawnio_declined": False,
+        "devices": [],
+        "zone_sizes": {},
+        "states": default_states(),
+        "options": dict(DEFAULT_OPTIONS),
+    }
+
+
+def load_settings() -> dict | None:
+    """Lädt die letzte Sitzung. None, wenn es keine (gültige) gibt."""
+    if not SETTINGS_FILE.exists():
+        return None
+    try:
+        data = json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        log.warning("Einstellungen nicht lesbar: %s", exc)
+        return None
+    merged = default_settings()
+    merged["cs2_path"] = data.get("cs2_path")
+    merged["gsi_token"] = data.get("gsi_token")
+    merged["pawnio_declined"] = bool(data.get("pawnio_declined", False))
+    merged["devices"] = [str(k) for k in data.get("devices", [])]
+    merged["zone_sizes"] = {str(k): int(v) for k, v in data.get("zone_sizes", {}).items()}
+    for key, value in data.get("options", {}).items():
+        if key in DEFAULT_OPTIONS:
+            merged["options"][key] = value
+    for sid, st in data.get("states", {}).items():
+        if sid in merged["states"]:
+            for key in STATE_KEYS:
+                if key in st:
+                    merged["states"][sid][key] = st[key]
+    return merged
+
+
+def save_settings(settings: dict) -> None:
+    try:
+        tmp = SETTINGS_FILE.with_suffix(".tmp")
+        tmp.write_text(json.dumps(settings, indent=2, ensure_ascii=False), encoding="utf-8")
+        tmp.replace(SETTINGS_FILE)
+    except OSError as exc:
+        log.error("Einstellungen konnten nicht gespeichert werden: %s", exc)
+
+
+def copy_settings(settings: dict) -> dict:
+    return copy.deepcopy(settings)

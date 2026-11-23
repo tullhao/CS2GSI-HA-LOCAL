@@ -1,3 +1,11 @@
+> ## 🆕 Neu: CS2 Local Claude 2.0
+> Die lokale RGB-Steuerung wurde komplett neu gebaut (mit Claude): **eine EXE, Doppelklick, fertig**.
+> Kein Python, kein separates OpenRGB, keine Skripte. Mit moderner Oberfläche, automatischer
+> Geräteerkennung (inkl. Logitech, Gigabyte, RAM) und frei einstellbaren Effekten.
+> → Download unter [Releases](https://github.com/tullhao/CS2GSI-HA-LOCAL/releases) · Details in [`cs2-local-claude/`](cs2-local-claude/README.md)
+>
+> Der alte Ordner `local_pc/` bleibt als Version 0.3.x erhalten. Home Assistant ist davon nicht betroffen.
+
 CONTROL YOUR RGB LED'S WITH CS2 Game states.   äääCtiOn
 
 FANS, GPU, KEYBOARD, MAINBOARD, MOUSE RGB'S OR LIGHTS FROM YOUR HOME :)

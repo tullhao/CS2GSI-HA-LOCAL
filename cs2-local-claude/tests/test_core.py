@@ -1,0 +1,150 @@
+"""Tests der Kernlogik ohne Windows, Qt oder RGB-Geräte: python tests/test_core.py"""
+import json
+import sys
+import tempfile
+import urllib.request
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+
+from cs2local import config  # noqa: E402
+from cs2local.cs2_setup import (  # noqa: E402
+    normalize_cs2_dir, other_gsi_files, parse_library_folders, write_gsi_config,
+)
+from cs2local.engine import LightEngine, state_color  # noqa: E402
+from cs2local.gsi_server import GSIServer  # noqa: E402
+from cs2local.states import StateDetector  # noqa: E402
+
+ME = "76561190000000001"
+
+
+def payload(**kw):
+    state = {"health": 100, "armor": 100, "flashed": 0, "burning": 0, "smoked": 0,
+             "round_kills": 0, "round_killhs": 0}
+    state.update(kw.pop("state", {}))
+    return {
+        "provider": {"steamid": ME},
+        "map": {"name": "de_mirage", "phase": kw.pop("map_phase", "live"), "round": 3},
+        "round": kw.pop("round", {"phase": "live"}),
+        "player": {"steamid": kw.pop("steamid", ME), "team": kw.pop("team", "CT"), "activity": "playing",
+                   "state": state,
+                   "weapons": kw.pop("weapons", {"weapon_0": {"name": "weapon_ak47", "state": "active",
+                                                             "ammo_clip": 30, "ammo_clip_max": 30}})},
+    }
+
+
+def test_states():
+    s = config.default_settings()
+    d = StateDetector(lambda: s["options"])
+    states = s["states"]
+    snap = lambda t: set(d.snapshot(t, states))  # noqa: E731
+
+    assert snap(0) == {"idle"}
+    d.update({"provider": {"steamid": ME}, "player": {"steamid": ME, "activity": "menu"}}, now=1)
+    assert snap(1) == {"idle"}
+    d.update(payload(round={"phase": "freezetime"}), now=2)
+    assert snap(2) == {"team_ct", "freezetime"}, snap(2)
+    d.update(payload(state={"health": 25, "flashed": 128}), now=3)
+    assert {"low_health", "flashed"} <= snap(3) and "damage" not in snap(3), snap(3)  # Flash statt Treffer
+    d.update(payload(state={"health": 20}), now=3.1)
+    assert "damage" in snap(3.1)
+    d.update(payload(state={"health": 25, "flashed": 128}), now=3.15)
+    assert abs(d.snapshot(3, states)["flashed"][1] - 128 / 255) < 1e-6
+    d.update(payload(state={"health": 10}), now=3.2)
+    assert "critical_health" in snap(3.2) and "low_health" not in snap(3.2)
+    d.update(payload(state={"health": 10, "round_kills": 1, "round_killhs": 1}), now=4)
+    assert "headshot" in snap(4) and "kill" not in snap(4)
+    assert "headshot" not in snap(10)  # Ereignis abgelaufen
+    d.update(payload(state={"health": 10, "round_kills": 2, "round_killhs": 1}), now=11)
+    assert "kill" in snap(11)
+    d.update(payload(round={"phase": "live", "bomb": "planted"}, state={"health_c4_preview": 0}), now=12)
+    assert {"bomb_planted", "bomb_lethal"} <= snap(12)
+    d.update(payload(round={"phase": "over", "bomb": "defused", "win_team": "CT"}), now=20)
+    assert {"bomb_defused", "round_won"} <= snap(20)
+    d.update(payload(round={"phase": "over", "bomb": "exploded", "win_team": "T"}), now=21)
+    assert "bomb_exploded" in snap(29)  # bleibt bis zur nächsten Runde
+    d.update(payload(round={"phase": "freezetime"}), now=30)
+    assert "bomb_exploded" not in snap(30)
+    d.update(payload(weapons={"w": {"state": "active", "ammo_clip": 5, "ammo_clip_max": 30}}), now=31)
+    assert "low_ammo" in snap(31)
+    d.update(payload(weapons={"w": {"state": "reloading", "ammo_clip": 5, "ammo_clip_max": 30}}), now=32)
+    assert "reloading" in snap(32)
+    d.update(payload(state={"smoked": 200}), now=33)
+    assert "smoked" in snap(33)
+    d.update(payload(steamid="other"), now=34)
+    assert "dead" in snap(34)
+    d.update(payload(map_phase="warmup", round={"phase": "warmup"}), now=35)
+    assert "warmup" in snap(35)
+    assert snap(100) == {"idle"}  # keine Daten mehr
+    print("states ok")
+
+
+def test_engine():
+    s = config.default_settings()
+    d = StateDetector(lambda: s["options"])
+    e = LightEngine(None, d, lambda: s)
+    d.update(payload(state={"flashed": 255}), now=1)
+    frame = e.compose(e.layers(1.0, s), 4, 1.0)
+    assert frame == [(255, 255, 255)] * 4, frame
+    d.update(payload(), now=2)
+    frame = e.compose(e.layers(2.0, s), 3, 1.0)
+    assert frame[0] == (0, 0, 89), frame  # CT gedimmt wie im alten Bridge
+    d.update(payload(team="T", round={"phase": "freezetime"}), now=3)
+    frame = e.compose(e.layers(3.0, s), 2, 1.0)
+    assert frame[0] == (0, 255, 0), frame  # Kaufphase: volle Teamfarbe T
+    assert state_color(s["states"]["round_won"], s["states"], "CT") == (0, 0, 255)
+    for eff in config.EFFECTS:
+        st = dict(s["states"]["kill"], effect=eff)
+        out = e.compose([(st, (10, 20, 30), 0.3, 1.0)], 8, 1.0)
+        assert len(out) == 8 and all(len(c) == 3 for c in out)
+    print("engine ok")
+
+
+def test_settings_roundtrip():
+    s = config.default_settings()
+    s["states"]["kill"]["color"] = [1, 2, 3]
+    s["devices"] = ["A::B"]
+    with tempfile.TemporaryDirectory() as tmp:
+        config.SETTINGS_FILE = Path(tmp) / "s.json"
+        config.save_settings(s)
+        loaded = config.load_settings()
+    assert loaded["states"]["kill"]["color"] == [1, 2, 3] and loaded["devices"] == ["A::B"]
+    print("settings ok")
+
+
+def test_setup():
+    vdf = ('"libraryfolders"\n{\n "0"\n {\n  "path"  "C:\\\\Program Files (x86)\\\\Steam"\n }\n'
+           ' "1"\n {\n  "path"  "D:\\\\SteamLibrary"\n }\n}')
+    assert [str(p) for p in parse_library_folders(vdf)] == ["C:\\Program Files (x86)\\Steam", "D:\\SteamLibrary"]
+    with tempfile.TemporaryDirectory() as tmp:
+        cs2 = Path(tmp) / "Counter-Strike Global Offensive"
+        cfg = cs2 / "game" / "csgo" / "cfg"
+        cfg.mkdir(parents=True)
+        (cfg / "gamestate_integration_homeassistant.cfg").write_text("x")
+        assert normalize_cs2_dir(cfg) == cs2
+        path, changed = write_gsi_config(cs2, 3002, "abc")
+        assert changed and '"token" "abc"' in path.read_text()
+        assert write_gsi_config(cs2, 3002, "abc")[1] is False
+        assert other_gsi_files(cs2) == ["gamestate_integration_homeassistant.cfg"]
+    print("setup ok")
+
+
+def test_server():
+    got = []
+    srv = GSIServer("tok", got.append)
+    port = srv.start(38410)
+    for token in ("falsch", "tok"):
+        body = json.dumps({"auth": {"token": token}, "map": {"name": "x"}}).encode()
+        urllib.request.urlopen(urllib.request.Request(f"http://127.0.0.1:{port}", body), timeout=3).read()
+    srv.stop()
+    assert len(got) == 1 and got[0]["map"]["name"] == "x"
+    print("server ok")
+
+
+if __name__ == "__main__":
+    test_states()
+    test_engine()
+    test_settings_roundtrip()
+    test_setup()
+    test_server()
+    print("ALLE TESTS OK")
