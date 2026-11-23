@@ -313,9 +313,10 @@ _T: dict[str, tuple[str, str]] = {
     "Keine Geräte": ("No devices", "Nenhum dispositivo"),
     "kurz": ("short", "curto"),
     "solange aktiv": ("while active", "enquanto ativo"),
+    "nur {v0}": ("{v0} only", "só {v0}"),
+    "Kommt nur im Team {v0} vor": ("Only happens on the {v0} side", "Só acontece no lado {v0}"),
     "Kurzes Ereignis mit fester Dauer": ("Short event with a fixed duration", "Evento curto com duração fixa"),
     "Leuchtet, solange die Situation andauert": ("Lights up as long as the situation lasts", "Acende enquanto a situação durar"),
-    "Vorschau als": ("Preview as", "Prévia como"),
     "Gesamthelligkeit": ("Overall brightness", "Brilho geral"),
     "Bildrate": ("Frame rate", "Taxa de quadros"),
     "Alle Effekte auf die Standardwerte zurücksetzen?": ("Reset all effects to their defaults?", "Redefinir todos os efeitos para o padrão?"),
@@ -417,7 +418,9 @@ _T: dict[str, tuple[str, str]] = {
     "Treffer kassiert": ("Took damage", "Levou dano"),
     "Kurz volle Teamfarbe, wenn du Schaden nimmst.": ("Brief full team color when you take damage.", "Cor do time no máximo por um instante quando você leva dano."),
     "Bombe gelegt": ("Bomb planted", "Bomba plantada"),
-    "Blinkt immer schneller, je näher die Explosion kommt.": ("Blinks faster and faster as the explosion gets closer.", "Pisca cada vez mais rápido conforme a explosão se aproxima."),
+    "Blinkt genau im Piep-Takt der C4: anfangs 1× pro Sekunde, am Ende immer schneller.": (
+        "Blinks exactly with the C4 beeps: once per second at first, faster and faster towards the end.",
+        "Pisca exatamente no ritmo dos bipes da C4: uma vez por segundo no início, cada vez mais rápido no final."),
     "Bombe wäre tödlich": ("Bomb would be lethal", "Bomba seria letal"),
     "Neu in CS2 (health_c4_preview): Die Explosion würde dich an deiner Position töten.": (
         "New in CS2 (health_c4_preview): the explosion would kill you at your position.",
@@ -441,7 +444,9 @@ _T: dict[str, tuple[str, str]] = {
         "On every flashbang: briefly full white, then a slow fade (like the old bridge).",
         "A cada flashbang: branco total por um instante e depois apaga devagar (como na bridge antiga)."),
     "Bombe kritisch": ("Bomb critical", "Bomba crítica"),
-    "Die letzten 10 Sekunden vor der Explosion: schnelles Stroboskop.": ("The last 10 seconds before the explosion: fast strobe.", "Os últimos 10 segundos antes da explosão: estroboscópio rápido."),
+    "Die letzten 10 Sekunden vor der Explosion: weiss im Piep-Takt.": (
+        "The last 10 seconds before the explosion: white, in time with the beeps.",
+        "Os últimos 10 segundos antes da explosão: branco, no ritmo dos bipes."),
     "Du trägst die Bombe": ("Carrying the bomb", "Você está com a bomba"),
     "Die C4 ist in deinem Inventar.": ("The C4 is in your inventory.", "A C4 está no seu inventário."),
     "Messer in der Hand": ("Knife out", "Faca na mão"),
@@ -480,6 +485,7 @@ _T: dict[str, tuple[str, str]] = {
     "Drehen (je Lüfter)": ("Spin (per fan)", "Girar (por fan)"),
     "Ausblenden": ("Fade out", "Esmaecer"),
     "Blitz (halten, dann ausblenden)": ("Flash (hold, then fade)", "Flash (segura e depois apaga)"),
+    "C4-Takt (wie das Piepen)": ("C4 beat (like the beeps)", "Ritmo da C4 (como os bipes)"),
 
     # --- Kategorien und Optionen ------------------------------------------------------------------------
     "Grundfarben": ("Base colors", "Cores base"),

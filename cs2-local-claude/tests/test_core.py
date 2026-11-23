@@ -156,6 +156,34 @@ def test_flash_effect():
     print("Blitz ok")
 
 
+def test_c4_beat():
+    from cs2local.effects import c4_beeps, c4_level
+    beeps = c4_beeps()
+    gaps = [b - a for a, b in zip(beeps, beeps[1:])]
+    assert abs(gaps[0] - 1.0) < 0.01, gaps[0]          # anfangs 1 Piep pro Sekunde
+    assert all(g1 >= g2 - 1e-9 for g1, g2 in zip(gaps, gaps[1:]))  # wird nur schneller
+    assert abs(gaps[-1] - 0.15) < 1e-6 and beeps[-1] < 40.0  # am Ende ~7 pro Sekunde
+    assert c4_level(beeps[10] + 0.01) == 1.0 and c4_level(beeps[10] - 0.05) < 0.2  # an beim Piep, sonst dunkel
+    # Alle Bomben-Ebenen laufen auf der Uhr ab dem Legen (auch „wäre tödlich“, das später beginnt)
+    settings = config.default_settings()
+    eng = LightEngine.__new__(LightEngine)
+    eng.detector = type("D", (), {"team": "T", "snapshot": lambda self, now, st: {
+        "bomb_planted": (12.34, 1.0), "bomb_lethal": (2.0, 1.0)}})()
+    layers = eng.layers(100.0, settings)
+    ts = {cfg["_id"] if "_id" in cfg else cfg["name"]: t for cfg, _c, t, _a in layers}
+    assert all(abs(t - 12.34) < 1e-9 for t in ts.values()), ts
+    # Alte Einstellungen (Blinken) werden auf den C4-Takt umgestellt, eigene Effekte bleiben
+    old = {"version": 3, "states": {"bomb_planted": {"effect": "blink", "color": [255, 0, 0]},
+                                    "bomb_lethal": {"effect": "pulse"}, "bomb_critical": {"effect": "solid"}}}
+    with tempfile.TemporaryDirectory() as tmp:
+        config.SETTINGS_FILE = Path(tmp) / "s.json"
+        config.SETTINGS_FILE.write_text(json.dumps(old))
+        st = config.load_settings()["states"]
+    assert st["bomb_planted"]["effect"] == "c4" and st["bomb_lethal"]["effect"] == "c4"
+    assert st["bomb_critical"]["effect"] == "solid"
+    print("C4-Takt ok")
+
+
 def test_settings_roundtrip():
     s = config.default_settings()
     s["states"]["kill"]["color"] = [1, 2, 3]
@@ -202,6 +230,7 @@ if __name__ == "__main__":
     test_new_states()
     test_engine()
     test_flash_effect()
+    test_c4_beat()
     test_settings_roundtrip()
     test_setup()
     test_server()

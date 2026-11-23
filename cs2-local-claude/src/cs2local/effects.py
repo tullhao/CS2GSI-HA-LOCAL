@@ -1,6 +1,7 @@
 """Lichteffekte: berechnen pro Bild die Farben für alle LEDs einer Zone."""
 from __future__ import annotations
 
+import bisect
 import math
 import random
 
@@ -31,6 +32,38 @@ def _noise(x: float) -> float:
     return a + (b - a) * frac
 
 
+C4_TIMER = 40.0  # Sekunden von „gelegt“ bis zur Explosion (Wettkampf/Premier)
+
+
+def c4_beeps(timer: float = C4_TIMER) -> list:
+    """Zeitpunkte der Pieptöne nach dem Legen.
+
+    Wie im Spielcode (planted_c4, C4Think): nach jedem Piep kommt der nächste nach
+    max(0.15, 0.1 + 0.9 * Restzeit / Timer) Sekunden – anfangs 1 pro Sekunde, am Ende ~7 pro Sekunde.
+    """
+    beeps, b = [0.0], 0.0
+    while True:
+        b += max(0.15, 0.1 + 0.9 * max(0.0, timer - b) / timer)
+        if b >= timer:
+            return beeps
+        beeps.append(b)
+
+
+_C4_BEEPS = c4_beeps()
+
+
+def c4_level(t: float) -> float:
+    """Helligkeit im Piep-Takt: bei jedem Piep kurz voll, dann schnell abklingen, dazwischen fast dunkel."""
+    if t < 0:
+        return 0.0
+    if t >= C4_TIMER:
+        return 1.0
+    since = t - _C4_BEEPS[bisect.bisect_right(_C4_BEEPS, t) - 1]
+    if since < 0.07:
+        return 1.0
+    return max(0.06, 1.0 - (since - 0.07) / 0.12)
+
+
 def render(effect: str, color, speed: float, t: float, n: int, duration: float = 0.0) -> list:
     """Farben für n LEDs. t = Sekunden seit Beginn des Zustands, speed = Wiederholungen pro Sekunde."""
     if n <= 0:
@@ -45,7 +78,9 @@ def render(effect: str, color, speed: float, t: float, n: int, duration: float =
             d = min(d, n - d)
             out.append(scale(color, max(0.08, 1.0 - d / width)))
         return out
-    if effect == "blink":
+    if effect == "c4":  # t = Sekunden seit dem Legen der Bombe
+        f = c4_level(t)
+    elif effect == "blink":
         f = 1.0 if (t * speed) % 1.0 < 0.5 else 0.0
     elif effect == "pulse":
         f = 0.05 + 0.95 * (0.5 - 0.5 * math.cos(2 * math.pi * t * speed))

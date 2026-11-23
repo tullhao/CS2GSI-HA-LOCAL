@@ -190,6 +190,13 @@ page = win.effects_page
 for i in range(len(config.CATEGORIES)):
     page.cat_group.button(i).click()
     shot(f"3_effekte_{i}_{config.CATEGORIES[i][0].lower()}")
+carry = next(c for c in page.cards if c.sid == "carrying_bomb")
+assert carry.isHidden(), "„Du trägst die Bombe“ darf bei CT nicht erscheinen"
+page.team_group.button(1).click()
+page.cat_group.button(3).click()
+assert not carry.isHidden(), "bei T muss „Du trägst die Bombe“ erscheinen"
+shot("3_effekte_3_bombe_T")
+page.team_group.button(0).click()
 page.cat_group.button(0).click()
 first = page.cards[0]
 first.more.setChecked(True)

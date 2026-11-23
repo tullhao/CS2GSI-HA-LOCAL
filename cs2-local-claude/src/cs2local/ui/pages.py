@@ -113,6 +113,17 @@ class ResponsiveGrid(QWidget):
             if w not in widgets:
                 w.deleteLater()
         self.widgets = list(widgets)
+        self.all_widgets = list(widgets)
+        self.columns = 0
+        self._relayout()
+
+    def show_only(self, keep) -> None:
+        """Nur einen Teil der Karten zeigen (z. B. passend zum Team), ohne die anderen zu löschen."""
+        for w in self.widgets:
+            self.grid.removeWidget(w)
+        for w in getattr(self, "all_widgets", self.widgets):
+            w.setVisible(keep(w))
+        self.widgets = [w for w in getattr(self, "all_widgets", self.widgets) if keep(w)]
         self.columns = 0
         self._relayout()
 
@@ -415,6 +426,11 @@ class StateCard(QFrame):
         tag.setToolTip(tr("Kurzes Ereignis mit fester Dauer") if cfg["kind"] == "event"
                        else tr("Leuchtet, solange die Situation andauert"))
         head.addWidget(tag)
+        only = config.STATE_TEAMS.get(sid)
+        if only:
+            team_tag = _label(tr("nur {v0}", v0=only), "Tag")
+            team_tag.setToolTip(tr("Kommt nur im Team {v0} vor", v0=only))
+            head.addWidget(team_tag)
         head.addStretch(1)
         lay.addLayout(head)
 
@@ -569,6 +585,7 @@ class EffectsPage(QWidget):
         self.live_team_fn = live_team_fn
         self.preview_team = "CT"
         self.cards: list = []
+        self.grids: list = []
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(14)
@@ -577,7 +594,7 @@ class EffectsPage(QWidget):
         cats, self.cat_group = _segmented([tr(c[0]) for c in config.CATEGORIES], self)
         top.addLayout(cats)
         top.addStretch(1)
-        top.addWidget(_label(tr("Vorschau als"), "Muted"))
+        top.addWidget(_label(tr("Team"), "Muted"))
         teams, self.team_group = _segmented(["CT", "T"], self)
         self.team_group.idClicked.connect(self._set_team)
         top.addLayout(teams)
@@ -588,6 +605,7 @@ class EffectsPage(QWidget):
             self.stack.addWidget(self._category_page(title, text, ids, options))
         self.cat_group.idClicked.connect(self.stack.setCurrentIndex)
         lay.addWidget(self.stack)
+        self._filter_team()
 
         general = QFrame()
         general.setObjectName("Card")
@@ -623,8 +641,15 @@ class EffectsPage(QWidget):
 
     def _set_team(self, idx: int) -> None:
         self.preview_team = "CT" if idx == 0 else "T"
+        self._filter_team()
         for card in self.cards:
             card._sync()  # noqa: SLF001
+
+    def _filter_team(self) -> None:
+        """Nur Situationen zeigen, die im gewählten Team vorkommen (z. B. „Du trägst die Bombe“ nur bei T)."""
+        team = self.preview_team
+        for grid in self.grids:
+            grid.show_only(lambda card: config.STATE_TEAMS.get(card.sid, team) == team)
 
     def _category_page(self, title, text, ids, options) -> QWidget:
         page = QWidget()
@@ -651,6 +676,7 @@ class EffectsPage(QWidget):
             cards.append(card)
         self.cards.extend(cards)
         grid.set_widgets(cards)
+        self.grids.append(grid)
         lay.addWidget(grid)
         lay.addStretch(1)
         return page

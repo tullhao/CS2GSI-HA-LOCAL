@@ -156,6 +156,14 @@ def state_preview_source(cfg: dict, color_fn):
             if t > duration:  # kurze Pause, gedimmt
                 return [tuple(int(v * 0.08) for v in color)] * n
             return render_segmented(effect, color, speed, t, n, duration, 6)
+        if effect == "c4":  # C4-Takt in Echtzeit: wie im Spiel, 40 s bis zur Explosion, dann kurze Pause
+            if sid == "bomb_critical":  # nur die letzten 10 Sekunden
+                t = 30.0 + elapsed % 11.0
+            else:
+                t = elapsed % 42.0
+            if t >= 40.0:
+                return [tuple(int(v * 0.08) for v in color)] * n
+            return render_segmented(effect, color, speed, t, n, duration, 6)
         if sid == "bomb_planted":  # 40 Sekunden Countdown im Zeitraffer (10 s)
             age = (elapsed % 10.0) * 4.0
             t = age + 1.5 * age * age / 40.0

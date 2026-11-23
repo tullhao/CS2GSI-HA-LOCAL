@@ -97,7 +97,12 @@ class LightEngine:
                 continue
             age, alpha = snap[sid]
             t = age
-            if sid == "bomb_planted":  # Blinken wird bis zur Explosion 4x schneller
+            if cfg.get("effect") == "c4":  # C4-Takt: eine Uhr ab dem Legen für alle Bomben-Ebenen
+                if "bomb_planted" in snap:
+                    t = snap["bomb_planted"][0]
+                else:  # Vorschau einer einzelnen Ebene
+                    t = age + 30.0 if sid == "bomb_critical" else age
+            elif sid == "bomb_planted":  # andere Effekte: Blinken wird bis zur Explosion 4x schneller
                 a = min(age, BOMB_TIMER + 5)
                 t = a + 1.5 * a * a / BOMB_TIMER
             out.append((cfg, state_color(cfg, states, team), t, alpha))

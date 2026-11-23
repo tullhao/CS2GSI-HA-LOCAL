@@ -41,6 +41,7 @@ EFFECTS = {
     "spin": "Drehen (je Lüfter)",
     "fade": "Ausblenden",
     "flash": "Blitz (halten, dann ausblenden)",
+    "c4": "C4-Takt (wie das Piepen)",
 }
 
 # Standardwerte orientieren sich am bisherigen local_pc-Bridge (CT blau, T grün, Teamfarbe gedimmt im Spiel).
@@ -66,9 +67,9 @@ _DEFAULT_STATES = [
      "Leben unter der Schwelle „Kritisch“: rot pulsierend."),
     ("damage", "Treffer kassiert", "event", (255, 255, 255), True, "solid", 1.0, 0.5, 100, 45,
      "Kurz volle Teamfarbe, wenn du Schaden nimmst."),
-    ("bomb_planted", "Bombe gelegt", "state", (255, 0, 0), False, "blink", 1.0, 0, 100, 50,
-     "Blinkt immer schneller, je näher die Explosion kommt."),
-    ("bomb_lethal", "Bombe wäre tödlich", "state", (170, 0, 255), False, "pulse", 3.0, 0, 100, 55,
+    ("bomb_planted", "Bombe gelegt", "state", (255, 0, 0), False, "c4", 1.0, 0, 100, 50,
+     "Blinkt genau im Piep-Takt der C4: anfangs 1× pro Sekunde, am Ende immer schneller."),
+    ("bomb_lethal", "Bombe wäre tödlich", "state", (170, 0, 255), False, "c4", 3.0, 0, 100, 55,
      "Neu in CS2 (health_c4_preview): Die Explosion würde dich an deiner Position töten."),
     ("burning", "Brennend", "state", (255, 80, 0), False, "flicker", 5.0, 0, 100, 60, "Du stehst im Feuer (Molotov)."),
     ("kill", "Kill", "event", (0, 255, 60), False, "fade", 1.0, 0.6, 100, 70, "Kurzer Effekt bei einem Kill."),
@@ -85,8 +86,8 @@ _DEFAULT_STATES = [
     ("flashed", "Geblendet (Flash)", "event", (255, 255, 255), False, "flash", 1.0, 2.5, 100, 100,
      "Bei jeder Flashbang: kurz voll weiss, dann langsam ausblenden (wie im alten Bridge)."),
     # --- weitere Spielzustände aus der Game State Integration
-    ("bomb_critical", "Bombe kritisch", "state", (255, 0, 0), False, "blink", 6.0, 0, 100, 54,
-     "Die letzten 10 Sekunden vor der Explosion: schnelles Stroboskop."),
+    ("bomb_critical", "Bombe kritisch", "state", (255, 255, 255), False, "c4", 6.0, 0, 100, 54,
+     "Die letzten 10 Sekunden vor der Explosion: weiss im Piep-Takt."),
     ("carrying_bomb", "Du trägst die Bombe", "state", (255, 140, 0), False, "pulse", 0.5, 0, 40, 21,
      "Die C4 ist in deinem Inventar."),
     ("knife_out", "Messer in der Hand", "state", (220, 220, 220), True, "solid", 1.0, 0, 60, 11,
@@ -130,6 +131,9 @@ CATEGORIES = [
     ("Runde", "Rundenende, MVP und das Match: Halbzeit, Matchpoint, Sieg oder Niederlage.",
      ["round_won", "round_lost", "mvp", "halftime", "matchpoint", "match_won", "match_lost"], []),
 ]
+# Situationen, die nur in einem Team vorkommen (alle anderen betreffen beide Teams)
+STATE_TEAMS = {"carrying_bomb": "T"}
+
 STATE_KEYS = ("enabled", "color", "team_color", "effect", "speed", "duration", "intensity", "priority")
 
 # Was an einem ARGB-Anschluss hängen kann: Name, LEDs pro Stück, Art (fan = Lüfter-Ringe, strip = Streifen)
@@ -170,7 +174,7 @@ def default_states() -> dict:
 
 def default_settings() -> dict:
     return {
-        "version": 3,
+        "version": 4,
         "cs2_path": None,
         "gsi_token": None,
         "pawnio_declined": False,
@@ -218,6 +222,12 @@ def load_settings() -> dict | None:
             merged["options"][key] = value
     if int(data.get("version", 2)) < 3:  # Flash ist jetzt ein Blitz-Ereignis statt Dauerzustand
         data.get("states", {}).pop("flashed", None)
+    if int(data.get("version", 2)) < 4:  # Bombe blinkt jetzt im echten Piep-Takt der C4
+        for sid, old in (("bomb_planted", "blink"), ("bomb_critical", "blink"), ("bomb_lethal", "pulse")):
+            st = data.get("states", {}).get(sid)
+            if st and st.get("effect") == old:
+                st.pop("effect", None)
+                st.pop("color", None)
     for sid, st in data.get("states", {}).items():
         if sid in merged["states"]:
             for key in STATE_KEYS:
