@@ -1,8 +1,6 @@
 """Windows-Hilfen: Adminrechte, PawnIO-Treiber und andere RGB-Programme, die stören können."""
 from __future__ import annotations
 
-import csv
-import io
 import logging
 import os
 import subprocess
@@ -13,17 +11,6 @@ from .config import PAWNIO_SETUP
 log = logging.getLogger(__name__)
 
 _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-
-# Programme, die RGB-Geräte exklusiv belegen. Name in der Oberfläche -> Prozessnamen (klein geschrieben)
-CONFLICTS = {
-    "Logitech G HUB": ["lghub.exe", "lghub_agent.exe", "lghub_system_tray.exe"],
-    "Logitech Gaming Software": ["lcore.exe"],
-    "Gigabyte RGB Fusion / Control Center": ["rgbfusion.exe", "gigabytecontrolcenter.exe"],
-    "Corsair iCUE": ["icue.exe"],
-    "ASUS Armoury Crate": ["armourycrate.exe"],
-    "SignalRGB": ["signalrgb.exe"],
-}
-
 
 # ----------------------------------------------------------------- Adminrechte
 def is_admin() -> bool:
@@ -79,38 +66,3 @@ def install_pawnio() -> tuple[bool, bool, str]:
     if code == 3010:
         return True, True, "PawnIO wurde installiert. Windows braucht einen Neustart, bis der Arbeitsspeicher erkannt wird."
     return False, False, f"PawnIO-Setup meldet Fehlercode {code}."
-
-
-# ----------------------------------------------------------------- Konflikte
-def running_processes() -> set[str]:
-    if os.name != "nt":
-        return set()
-    try:
-        out = subprocess.run(["tasklist", "/FO", "CSV", "/NH"], capture_output=True, text=True,
-                             timeout=10, creationflags=_NO_WINDOW).stdout
-    except (OSError, subprocess.TimeoutExpired):
-        return set()
-    return {row[0].lower() for row in csv.reader(io.StringIO(out)) if row}
-
-
-def find_conflicts() -> dict[str, list[str]]:
-    """Gefundene störende Programme: Anzeigename -> laufende Prozesse."""
-    running = running_processes()
-    found = {}
-    for name, procs in CONFLICTS.items():
-        hits = [p for p in procs if p in running]
-        if hits:
-            found[name] = hits
-    return found
-
-
-def close_processes(procs: list[str]) -> list[str]:
-    """Beendet Prozesse nur für diese Sitzung. Gibt zurück, was sich nicht beenden liess."""
-    failed = []
-    for proc in procs:
-        result = subprocess.run(["taskkill", "/F", "/IM", proc], capture_output=True,
-                                timeout=15, creationflags=_NO_WINDOW)
-        if result.returncode not in (0, 128):  # 128 = lief nicht (mehr)
-            failed.append(proc)
-    log.info("Beendet: %s, fehlgeschlagen: %s", procs, failed)
-    return failed

@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
     QScrollArea, QStackedWidget, QVBoxLayout, QWidget,
 )
 
-from .. import config, system
+from .. import config, system, vendor_apps
 from ..cs2_setup import find_cs2, normalize_cs2_dir, other_gsi_files, write_gsi_config
 from ..engine import LightEngine
 from ..gsi_server import GSIServer
@@ -431,20 +431,33 @@ class MainWindow(QMainWindow):
 
     # ---- Schritt: andere RGB-Programme
     def _conflict_step(self) -> None:
-        found = system.find_conflicts()
+        found = vendor_apps.scan()
         if found:
-            names = "\n".join(f"• {name}" for name in found)
-            answer = QMessageBox.question(
-                self, "Andere RGB-Programme laufen",
-                f"Diese Programme steuern ebenfalls RGB und blockieren oft die Erkennung:\n\n{names}\n\n"
-                "Sollen sie für diese Sitzung geschlossen werden? Beim nächsten Windows-Start laufen sie "
-                "wieder ganz normal.")
-            if answer == QMessageBox.Yes:
-                procs = [p for hits in found.values() for p in hits]
-                failed = system.close_processes(procs)
+            lines = []
+            for name, items in found.items():
+                parts = []
+                if items["services"]:
+                    parts.append(f"{len(items['services'])} Dienst{'e' if len(items['services']) != 1 else ''}")
+                if items["processes"]:
+                    parts.append(f"{len(items['processes'])} Programm{'e' if len(items['processes']) != 1 else ''}")
+                lines.append(f"• {name}  ({', '.join(parts)})")
+            box = QMessageBox(self)
+            box.setWindowTitle("Andere RGB-Software läuft")
+            box.setIcon(QMessageBox.Information)
+            box.setText("<b>Diese Programme steuern deine LEDs ebenfalls und blockieren die Geräte:</b>")
+            box.setInformativeText(
+                "\n".join(lines) + "\n\nDas Tool pausiert sie für diese Sitzung. Beim Schliessen startet es "
+                "sie automatisch wieder, dann ist deine gewohnte Beleuchtung sofort zurück.")
+            pause = box.addButton("Pausieren und weiter", QMessageBox.AcceptRole)
+            box.addButton("Laufen lassen", QMessageBox.RejectRole)
+            box.setDefaultButton(pause)
+            box.exec()
+            if box.clickedButton() is pause:
+                self.card_rgb.set("busy", "Pausiere andere RGB-Software …")
+                failed = vendor_apps.pause(found)
                 if failed:
-                    QMessageBox.warning(self, config.APP_NAME, "Nicht beenden liessen sich: " + ", ".join(failed))
-                time.sleep(1.0)
+                    QMessageBox.warning(self, config.APP_NAME, "Nicht pausieren liess sich:\n" + "\n".join(failed))
+                time.sleep(1.5)
         self._start_rgb()
 
     # ---- Schritt: RGB-Engine
@@ -705,4 +718,7 @@ class MainWindow(QMainWindow):
         if self.gsi:
             self.gsi.stop()
         self.rgb.shutdown()
+        errors = vendor_apps.resume()  # pausierte Hersteller-Software wieder starten
+        if errors:
+            log.warning("Neustart der Hersteller-Software unvollständig: %s", errors)
         super().closeEvent(event)

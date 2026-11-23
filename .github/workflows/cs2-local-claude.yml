@@ -48,6 +48,9 @@ jobs:
       - name: Test des SDK-Clients
         run: python tests/test_sdk_fake.py
 
+      - name: Hersteller-Software pausieren und wieder starten (Windows)
+        run: python tests/test_vendor_windows.py
+
       - name: Oberfläche durchklicken und fotografieren
         env:
           QT_QPA_PLATFORM: windows
