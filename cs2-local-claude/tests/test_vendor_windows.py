@@ -22,6 +22,7 @@ root = Path(tempfile.mkdtemp()) / "GIGABYTE" / "Control Center"
 root.mkdir(parents=True)
 fake = root / "GCC_Test.exe"
 shutil.copy(Path(os.environ["WINDIR"]) / "System32" / "PING.EXE", fake)
+fake = Path(os.path.realpath(fake))  # lange Pfadnamen (Temp-Ordner kann RUNNER~1 heissen)
 vendor_apps.PENDING_FILE = Path(tempfile.mkdtemp()) / "restart.json"
 
 proc = subprocess.Popen([str(fake), "-n", "120", "127.0.0.1"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
