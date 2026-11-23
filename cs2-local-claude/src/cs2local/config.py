@@ -84,6 +84,23 @@ _DEFAULT_STATES = [
 ]
 
 STATE_ORDER = [s[0] for s in _DEFAULT_STATES]
+
+# Kategorien der Effekt-Seite: (Titel, Erklärung, Zustände, Einstellungen der Kategorie)
+CATEGORIES = [
+    ("Grundfarben", "Die Farbe im Normalfall: im Menü, als CT oder T und zum Rundenstart.",
+     ["team_ct", "team_t", "freezetime", "warmup", "idle"], []),
+    ("Gesundheit", "Wie es dir geht: wenig Leben, Treffer und Tod.",
+     ["low_health", "critical_health", "damage", "dead"],
+     [("low_health_threshold", "Wenig Leben ab", " HP", 2, 99), ("critical_health_threshold", "Kritisch ab", " HP", 1, 98)]),
+    ("Kampf", "Was im Gefecht passiert: Kills, Flash, Feuer und Smoke.",
+     ["kill", "headshot", "flashed", "burning", "smoked"], []),
+    ("Bombe", "Alles rund um die C4: gelegt, tödlich, entschärft oder explodiert.",
+     ["bomb_planted", "bomb_lethal", "bomb_defused", "bomb_exploded"], []),
+    ("Waffe", "Deine aktive Waffe: Nachladen und knappe Munition.",
+     ["reloading", "low_ammo"], [("low_ammo_percent", "Munition knapp ab", " % im Magazin", 5, 90)]),
+    ("Runde", "Das Ende einer Runde: gewonnen oder verloren.",
+     ["round_won", "round_lost"], []),
+]
 STATE_KEYS = ("enabled", "color", "team_color", "effect", "speed", "duration", "intensity", "priority")
 
 DEFAULT_OPTIONS = {

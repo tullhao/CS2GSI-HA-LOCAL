@@ -95,30 +95,46 @@ class LightEngine:
             frame = [scale(c, brightness) for c in frame]
         return frame
 
+    def _frame(self, now: float, prepared: set, preview) -> None:
+        settings = self.get_settings()
+        opts = settings["options"]
+        keys = list(settings["devices"])
+        new = [k for k in keys if k not in prepared]
+        if new:
+            self.rgb.prepare(new)
+            prepared.update(new)
+        layers = self.layers(now, settings, preview)
+        brightness = max(0.0, min(1.0, float(opts.get("brightness", 100)) / 100.0))
+        for key in keys:
+            n = self.rgb.led_count(key)
+            if n:
+                self.rgb.set_zone(key, self.compose(layers, n, brightness))
+        top = layers[-1][0]["name"] if layers else None
+        self.status = {"top": top, "color": self.compose(layers, 1, brightness)[0], "error": None}
+
     def _loop(self) -> None:
         prepared: set = set()
+        failures = 0
         try:
             while True:
                 now = time.monotonic()
                 preview = self._preview if self._preview and now < self._preview[2] else None
                 if not self.running and not preview:
                     break
-                settings = self.get_settings()
-                opts = settings["options"]
-                keys = list(settings["devices"])
-                new = [k for k in keys if k not in prepared]
-                if new:
-                    self.rgb.prepare(new)
-                    prepared.update(new)
-                layers = self.layers(now, settings, preview)
-                brightness = max(0.0, min(1.0, float(opts.get("brightness", 100)) / 100.0))
-                for key in keys:
-                    n = self.rgb.led_count(key)
-                    if n:
-                        self.rgb.set_zone(key, self.compose(layers, n, brightness))
-                top = layers[-1][0]["name"] if layers else None
-                self.status = {"top": top, "color": self.compose(layers, 1, brightness)[0], "error": None}
-                fps = max(5, min(60, int(opts.get("fps", 20))))
+                try:
+                    self._frame(now, prepared, preview)
+                    failures = 0
+                except (ConnectionError, OSError) as exc:  # Verbindung weg: neu verbinden statt aufgeben
+                    failures += 1
+                    log.warning("Verbindung zur RGB-Engine unterbrochen (%s), Versuch %d", exc, failures)
+                    if failures > 5:
+                        raise
+                    self.status = {"top": "Verbinde neu …", "color": (0, 0, 0), "error": None}
+                    time.sleep(min(5.0, 0.5 * failures))
+                    self.rgb.reconnect()
+                    prepared.clear()
+                    continue
+                fps = max(5, min(60, int(self.get_settings()["options"].get("fps", 20))))
                 time.sleep(max(0.0, 1.0 / fps - (time.monotonic() - now)))
         except Exception as exc:  # noqa: BLE001
             log.exception("Licht-Motor gestoppt")

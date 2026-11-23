@@ -1,7 +1,8 @@
 """Eingebaute RGB-Engine: der OpenRGB-Kern läuft unsichtbar im Hintergrund und erkennt alle RGB-Geräte.
 
 Der Kern wird in der EXE mitgeliefert (unverändert, GPL-2.0), nur für diese Sitzung gestartet und beim
-Beenden wieder geschlossen. Gesteuert wird er über das offene OpenRGB-SDK-Protokoll.
+Beenden wieder geschlossen. Gesteuert wird er über das offene SDK-Protokoll (eigener Client in sdk_client.py).
+Reisst die Verbindung ab, verbindet sich die Engine selbst neu und startet den Kern bei Bedarf neu.
 """
 from __future__ import annotations
 
@@ -14,29 +15,12 @@ import threading
 import time
 from pathlib import Path
 
-from .config import OPENRGB_DIR
+from .config import OPENRGB_DIR, app_dir
+from .sdk_client import COLOR_MODE_PER_LED, SDKClient, SDKError
 
 log = logging.getLogger(__name__)
 
-try:
-    from openrgb import OpenRGBClient, orgb
-    from openrgb.utils import RGBColor
-
-    # openrgb-python verwirft leds_min/leds_max einer Zone. Ohne diese Werte wüssten wir nicht,
-    # bei welchen ARGB-Headern man die LED-Anzahl einstellen kann. Deshalb hier mitspeichern.
-    if not getattr(orgb.Zone, "_cs2local_patched", False):
-        _zone_update = orgb.Zone._update
-
-        def _zone_update_with_limits(self, data):
-            _zone_update(self, data)
-            self.leds_min = getattr(data, "leds_min", 0)
-            self.leds_max = getattr(data, "leds_max", 0)
-
-        orgb.Zone._update = _zone_update_with_limits
-        orgb.Zone._cs2local_patched = True
-except ImportError:  # pragma: no cover
-    OpenRGBClient = None  # type: ignore[assignment]
-    RGBColor = None  # type: ignore[assignment]
+ENGINE_LOG = app_dir() / "cs2local_engine.log"
 
 
 class RGBEngineError(Exception):
@@ -46,12 +30,15 @@ class RGBEngineError(Exception):
 class RGBEngine:
     def __init__(self, port: int = 6742):
         self.port = port
-        self.client = None
+        self.client: SDKClient | None = None
         self.proc: subprocess.Popen | None = None
         self.lock = threading.RLock()
-        self._zones: dict = {}   # "Gerät::Zone" -> (device, zone)
-        self._saved: dict = {}   # Gerät -> (device, alter Modus, [(zone, alte Farben)])
+        self.devices: list = []
+        self._zones: dict = {}    # "Gerät::Zone" -> (Geräte-Schlüssel, Device, Zone)
+        self._saved: dict = {}    # Geräte-Schlüssel -> (Modus, {Zonenindex: Farben})
+        self._direct: set = set()  # Geräte im Direktmodus
         self._last: dict = {}
+        self._log_handle = None
         atexit.register(self._kill)
 
     # ------------------------------------------------------------ Start/Stop
@@ -76,84 +63,115 @@ class RGBEngine:
     def started_by_us(self) -> bool:
         return self.proc is not None
 
-    def start(self, zone_sizes: dict | None = None, progress=lambda msg: None) -> None:
-        if OpenRGBClient is None:
-            raise RGBEngineError("Die SDK-Bibliothek fehlt in diesem Build.")
-        if self._port_open():
-            progress("Eine laufende OpenRGB-Instanz wurde gefunden, verbinde …")
-        else:
-            exe = self.find_exe()
-            if not exe:
-                raise RGBEngineError("Die eingebaute RGB-Engine fehlt in diesem Build (OpenRGB.exe).")
-            progress("Starte die RGB-Engine im Hintergrund …")
-            flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
-            self.proc = subprocess.Popen(
-                [str(exe), "--server", "--server-host", "127.0.0.1", "--server-port", str(self.port),
-                 "--localconfig", "--noautoconnect"],
-                cwd=str(exe.parent), creationflags=flags,
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL,
-            )
-            log.info("RGB-Engine gestartet (PID %s, %s)", self.proc.pid, exe)
+    @property
+    def connected(self) -> bool:
+        return self.client is not None and self.client.alive
 
-        deadline = time.monotonic() + 60
+    def _launch(self, progress) -> None:
+        exe = self.find_exe()
+        if not exe:
+            raise RGBEngineError("Die eingebaute RGB-Engine fehlt in diesem Build (OpenRGB.exe).")
+        progress("Starte die RGB-Engine im Hintergrund …")
+        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
+        try:
+            self._log_handle = open(ENGINE_LOG, "w", encoding="utf-8", errors="replace")  # noqa: SIM115
+        except OSError:
+            self._log_handle = None
+        out = self._log_handle or subprocess.DEVNULL
+        self.proc = subprocess.Popen(
+            [str(exe), "--server", "--server-host", "127.0.0.1", "--server-port", str(self.port),
+             "--localconfig", "--noautoconnect", "--loglevel", "warning", "-v"],
+            cwd=str(exe.parent), creationflags=flags, stdout=out, stderr=subprocess.STDOUT,
+            stdin=subprocess.DEVNULL,
+        )
+        log.info("RGB-Engine gestartet (PID %s)", self.proc.pid)
+
+    def _connect(self, deadline: float) -> None:
         last_error: Exception | None = None
         while time.monotonic() < deadline:
             if self.proc and self.proc.poll() is not None:
                 raise RGBEngineError(f"Die RGB-Engine wurde unerwartet beendet (Code {self.proc.returncode}). "
-                                     "Details im Log.")
+                                     f"Details: {ENGINE_LOG.name}")
+            client = SDKClient("127.0.0.1", self.port)
             try:
-                self.client = OpenRGBClient("127.0.0.1", self.port, "CS2 Local Claude")
-                break
-            except Exception as exc:  # noqa: BLE001
+                client.connect()
+                self.client = client
+                return
+            except (OSError, SDKError) as exc:
+                client.close()
                 last_error = exc
                 time.sleep(1.0)
-        else:
-            raise RGBEngineError(f"Keine Verbindung zur RGB-Engine möglich: {last_error}")
+        raise RGBEngineError(f"Keine Verbindung zur RGB-Engine möglich: {last_error}")
 
-        progress("Suche RGB-Geräte (das dauert ein paar Sekunden) …")
-        self._wait_for_devices()
-        self._index()
-        for key, size in (zone_sizes or {}).items():
-            try:
-                if key in self._zones and self.led_count(key) != size:
-                    self.resize(key, size)
-            except Exception:  # noqa: BLE001
-                log.warning("Zonengrösse für %s nicht setzbar", key)
-        log.info("RGB-Engine bereit: %d Zonen", len(self._zones))
+    def start(self, zone_sizes: dict | None = None, progress=lambda msg: None) -> None:
+        with self.lock:
+            if self._port_open():
+                progress("Eine laufende OpenRGB-Instanz wurde gefunden, verbinde …")
+            else:
+                self._launch(progress)
+            self._connect(time.monotonic() + 60)
+            progress("Suche RGB-Geräte (das dauert ein paar Sekunden) …")
+            self._wait_for_devices()
+            for key, size in (zone_sizes or {}).items():
+                try:
+                    if key in self._zones and self.led_count(key) != size:
+                        self.resize(key, size)
+                except Exception:  # noqa: BLE001
+                    log.warning("Zonengrösse für %s nicht setzbar", key)
+            log.info("RGB-Engine bereit: %d Geräte, %d Zonen", len(self.devices), len(self._zones))
+            for dev in self.devices:
+                log.info("  %s (%s): %s | Modi: %s", dev.name, dev.type_name,
+                         ", ".join(f"{z.name}[{z.leds_count}]" for z in dev.zones),
+                         ", ".join(m.name for m in dev.modes))
 
     def _wait_for_devices(self, timeout: float = 30.0) -> None:
         """Wartet, bis die Geräteerkennung fertig ist (Anzahl Geräte bleibt stabil)."""
         deadline = time.monotonic() + timeout
         prev, stable = -1, 0
         while time.monotonic() < deadline:
-            try:
-                self.client.update()
-            except Exception:  # noqa: BLE001
-                pass
-            count = len(self.client.devices)
+            count = self.client.controller_count()
             if count == prev and count > 0:
                 stable += 1
                 if stable >= 2:
-                    return
+                    break
             else:
                 stable = 0
             prev = count
             time.sleep(1.5)
+        self._load_devices()
 
-    def _index(self) -> None:
+    def _load_devices(self) -> None:
+        self.devices = self.client.devices()
         self._zones.clear()
+        self._last.clear()
         seen: dict = {}
-        for dev in self.client.devices:
+        for dev in self.devices:
             seen[dev.name] = seen.get(dev.name, 0) + 1
-            name = dev.name if seen[dev.name] == 1 else f"{dev.name} #{seen[dev.name]}"
+            dkey = dev.name if seen[dev.name] == 1 else f"{dev.name} #{seen[dev.name]}"
             for zone in dev.zones:
-                self._zones[f"{name}::{zone.name}"] = (dev, zone)
+                self._zones[f"{dkey}::{zone.name}"] = (dkey, dev, zone)
 
     def refresh(self) -> None:
         with self.lock:
-            self.client.update()
-            self._index()
-            self._last.clear()
+            self._load_devices()
+
+    def reconnect(self) -> None:
+        """Nach einem Verbindungsabriss: Kern bei Bedarf neu starten, neu verbinden, Geräte neu laden."""
+        with self.lock:
+            if self.client:
+                self.client.close()
+            self.client = None
+            if self.proc and self.proc.poll() is not None:
+                log.warning("RGB-Engine war beendet (Code %s), starte neu", self.proc.returncode)
+                self.proc = None
+                self._launch(lambda m: None)
+                self._connect(time.monotonic() + 30)
+                self._wait_for_devices(timeout=15)
+            else:
+                self._connect(time.monotonic() + 15)
+                self._load_devices()
+            self._direct.clear()
+            log.info("RGB-Engine wieder verbunden")
 
     def _kill(self) -> None:
         if self.proc and self.proc.poll() is None:
@@ -164,93 +182,102 @@ class RGBEngine:
                 self.proc.kill()
             log.info("RGB-Engine beendet")
         self.proc = None
+        if self._log_handle:
+            self._log_handle.close()
+            self._log_handle = None
 
     def shutdown(self) -> None:
         with self.lock:
             try:
                 self.restore()
-                if self.client:
-                    self.client.disconnect()
             except Exception:  # noqa: BLE001
                 pass
+            if self.client:
+                self.client.close()
             self.client = None
         self._kill()
 
     # ------------------------------------------------------------ Geräte
     def zones(self) -> list:
         out = []
-        for key, (dev, zone) in self._zones.items():
-            lo = int(getattr(zone, "leds_min", 0) or 0)
-            hi = int(getattr(zone, "leds_max", 0) or 0)
-            dtype = getattr(getattr(dev, "type", None), "name", "") or "Gerät"
+        for key, (dkey, dev, zone) in self._zones.items():
             out.append({
                 "key": key,
-                "device": key.split("::", 1)[0],
+                "device": dkey,
                 "zone": zone.name,
-                "type": dtype.replace("_", " ").title(),
-                "leds": len(zone.leds),
-                "resizable": hi > lo,
-                "leds_min": lo,
-                "leds_max": hi,
+                "type": dev.type_name,
+                "type_id": dev.type,
+                "vendor": dev.vendor,
+                "leds": zone.leds_count,
+                "resizable": zone.leds_max > zone.leds_min,
+                "leds_min": zone.leds_min,
+                "leds_max": zone.leds_max,
             })
         return out
 
     def led_count(self, key: str) -> int:
-        pair = self._zones.get(key)
-        return len(pair[1].leds) if pair else 0
+        entry = self._zones.get(key)
+        return entry[2].leds_count if entry else 0
 
     def resize(self, key: str, size: int) -> None:
         with self.lock:
-            pair = self._zones.get(key)
-            if not pair:
+            entry = self._zones.get(key)
+            if not entry:
                 return
-            pair[1].resize(int(size))
-            self.refresh()
+            self.client.resize_zone(entry[1].index, entry[2].index, int(size))
+            time.sleep(0.3)
+            self._load_devices()
 
     # ------------------------------------------------------------ Licht
     def prepare(self, keys) -> None:
         """Merkt sich den bisherigen Zustand und schaltet die Geräte auf Direktsteuerung."""
         with self.lock:
             for key in keys:
-                pair = self._zones.get(key)
-                if not pair:
+                entry = self._zones.get(key)
+                if not entry:
                     continue
-                dev = pair[0]
-                did = getattr(dev, "id", id(dev))
-                if did in self._saved:
+                dkey, dev, _ = entry
+                if dkey not in self._saved:
+                    mode = dev.modes[dev.active_mode] if 0 <= dev.active_mode < len(dev.modes) else None
+                    colors = {z.index: dev.zone_colors(z) for z in dev.zones}
+                    self._saved[dkey] = (dev.index, mode, colors)
+                if dkey in self._direct:
                     continue
-                self._saved[did] = (dev, dev.active_mode, [(z, list(z.colors)) for z in dev.zones])
-                try:
-                    dev.set_custom_mode()
-                except Exception:  # noqa: BLE001
-                    try:
-                        dev.set_mode("direct")
-                    except Exception:  # noqa: BLE001
-                        log.warning("%s: kein Direktmodus", dev.name)
+                direct = dev.mode_by_name("Direct")
+                if direct is not None:
+                    self.client.update_mode(dev.index, direct)
+                else:
+                    self.client.set_custom_mode(dev.index)
+                self._direct.add(dkey)
+                log.info("%s: Direktsteuerung (%s)", dkey, direct.name if direct else "Custom")
 
     def set_zone(self, key: str, colors: list) -> None:
         frame = tuple(colors)
         if self._last.get(key) == frame:
             return
+        entry = self._zones.get(key)
+        if not entry:
+            return
         with self.lock:
-            pair = self._zones.get(key)
-            if not pair:
-                return
-            pair[1].set_colors([RGBColor(*c) for c in colors], fast=True)
+            self.client.update_zone_leds(entry[1].index, entry[2].index, colors)
         self._last[key] = frame
 
     def restore(self) -> None:
         """Stellt Modus und Farben wieder her, die vor dem Start aktiv waren."""
         with self.lock:
-            for dev, mode, zones in self._saved.values():
-                try:
-                    dev.set_mode(mode)
-                    for zone, cols in zones:
-                        if cols:
-                            zone.set_colors(cols, fast=True)
-                except Exception:  # noqa: BLE001
-                    log.warning("Zustand von %s nicht wiederherstellbar", getattr(dev, "name", "?"))
+            if self.connected:
+                for dkey, (dev_index, mode, colors) in self._saved.items():
+                    try:
+                        if mode is not None:
+                            self.client.update_mode(dev_index, mode)
+                            if mode.color_mode == COLOR_MODE_PER_LED:
+                                for zone_index, cols in colors.items():
+                                    if cols:
+                                        self.client.update_zone_raw(dev_index, zone_index, cols)
+                    except SDKError:
+                        log.warning("Zustand von %s nicht wiederherstellbar", dkey)
             self._saved.clear()
+            self._direct.clear()
             self._last.clear()
 
     def test(self, keys) -> None:

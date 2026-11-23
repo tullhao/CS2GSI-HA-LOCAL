@@ -7,3 +7,4 @@ __pycache__/
 cs2local_settings.json
 cs2local.log
 cs2local_selftest.txt
+tests/screens/

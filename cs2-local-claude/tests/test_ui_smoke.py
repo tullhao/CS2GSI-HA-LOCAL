@@ -1,4 +1,7 @@
-"""Baut das Hauptfenster ohne Bildschirm auf und klickt durch alle Seiten (QT_QPA_PLATFORM=offscreen)."""
+"""Baut das Hauptfenster ohne Bildschirm auf, klickt durch alle Seiten und speichert Bildschirmfotos.
+
+QT_QPA_PLATFORM=offscreen; Bilder landen in tests/screens/ (auf GitHub als Artefakt abrufbar).
+"""
 import os
 import sys
 from pathlib import Path
@@ -6,48 +9,76 @@ from pathlib import Path
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+from PySide6.QtGui import QFont  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from cs2local import config  # noqa: E402
 from cs2local.ui.main_window import MainWindow  # noqa: E402
 from cs2local.ui.theme import STYLE  # noqa: E402
 
+SHOTS = Path(__file__).resolve().parent / "screens"
+SHOTS.mkdir(exist_ok=True)
+
 app = QApplication(sys.argv)
+app.setFont(QFont("Segoe UI", 10))
 app.setStyleSheet(STYLE)
 settings = config.default_settings()
 win = MainWindow(settings, autostart=False)  # ohne Systemprüfung und Dialoge
+win.resize(1280, 900)
 win.show()
 
-# Seiten wechseln, Effekt-Zeilen neu bauen, Live-Anzeige einmal aktualisieren
-for i in range(4):
-    win.go(i)
-    app.processEvents()
-win._build_effect_rows()
-win._paint_colors()
-win._tick()
 
-# Gerätebaum mit Beispieldaten füllen (wie es die RGB-Engine liefern würde)
-zones = [
-    {"key": "B650 Board::ARGB Header 1", "device": "B650 Board", "zone": "ARGB Header 1", "type": "Motherboard",
-     "leds": 0, "resizable": True, "leds_min": 0, "leds_max": 1024},
-    {"key": "B650 Board::Logo", "device": "B650 Board", "zone": "Logo", "type": "Motherboard",
-     "leds": 1, "resizable": False, "leds_min": 1, "leds_max": 1},
-    {"key": "Logitech G915 TKL::Keyboard", "device": "Logitech G915 TKL", "zone": "Keyboard", "type": "Keyboard",
-     "leds": 92, "resizable": False, "leds_min": 92, "leds_max": 92},
-]
-win._populate_tree(zones)
-win._check_all(True)
-app.processEvents()
-assert len(settings["devices"]) == 3, settings["devices"]
-win._check_all(False)
-app.processEvents()
-assert settings["devices"] == [], settings["devices"]
+def shot(name: str) -> None:
+    for _ in range(5):
+        app.processEvents()
+    win.grab().save(str(SHOTS / f"{name}.png"))
 
-# Effekt-Einstellungen ändern wie per Klick
-win._set_state("kill", "color", [1, 2, 3])
-win._on_brightness(50)
-assert settings["options"]["brightness"] == 50
+
+# Beispielgeräte, wie sie die RGB-Engine liefert (ähnlich dem echten PC)
+zones = []
+for dev, type_id, type_name, vendor, zz in [
+    ("X870M AORUS ELITE WIFI7", 0, "Mainboard", "Gigabyte",
+     [("ARGB_V2_1", 0, True), ("ARGB_V2_2", 12, True), ("Chipset Accent", 1, False), ("LED_C", 1, False)]),
+    ("G915 X LS TKL", 5, "Tastatur", "Logitech", [("Keyboard", 87, False), ("Extras", 2, False)]),
+    ("Corsair Commander Pro", 3, "Kühlung", "Corsair", [("Corsair RGB Header 1", 16, True)]),
+    ("Asus ROG SWIFT PG32UCDM", 20, "Monitor", "ASUS", [("Monitor", 1, False)]),
+]:
+    for name, leds, resizable in zz:
+        zones.append({"key": f"{dev}::{name}", "device": dev, "zone": name, "type": type_name, "type_id": type_id,
+                      "vendor": vendor, "leds": leds, "resizable": resizable,
+                      "leds_min": 0 if resizable else leds, "leds_max": 300 if resizable else leds})
+
+shot("1_uebersicht")
+win.go(1)
+win.devices_page.populate(zones)
+shot("2_geraete_leer")
+card = win.devices_page.cards["G915 X LS TKL"]
+card.master.click()
+app.processEvents()
+assert settings["devices"] == ["G915 X LS TKL::Keyboard", "G915 X LS TKL::Extras"], settings["devices"]
+win.devices_page._set_all(True)  # noqa: SLF001
+app.processEvents()
+assert len(settings["devices"]) == 7, settings["devices"]  # Zone mit 0 LEDs bleibt aus
+shot("2_geraete")
+
+win.go(2)
+page = win.effects_page
+for i in range(len(config.CATEGORIES)):
+    page.cat_group.button(i).click()
+    shot(f"3_effekte_{i}_{config.CATEGORIES[i][0].lower()}")
+page.cat_group.button(0).click()
+first = page.cards[0]
+first.more.setChecked(True)
+first.toggle.click()
+assert settings["states"][first.sid]["enabled"] is False
+first.toggle.click()
+page.team_group.button(1).click()
+shot("3_effekte_feineinstellungen")
+
+win.go(3)
+win._tick()  # noqa: SLF001
+shot("4_live")
 
 win.timer.stop()
 win.hide()
-print("UI ok")
+print("UI ok, Bilder in", SHOTS)

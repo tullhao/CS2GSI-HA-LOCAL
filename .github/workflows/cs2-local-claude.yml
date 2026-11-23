@@ -45,10 +45,28 @@ jobs:
       - name: Tests der Kernlogik
         run: python tests/test_core.py
 
-      - name: Oberfläche aufbauen (ohne Bildschirm)
+      - name: Test des SDK-Clients
+        run: python tests/test_sdk_fake.py
+
+      - name: Oberfläche durchklicken und fotografieren
         env:
-          QT_QPA_PLATFORM: offscreen
+          QT_QPA_PLATFORM: windows
         run: python tests/test_ui_smoke.py
+
+      - name: Bildschirmfotos auf Branch ci-screens ablegen
+        if: github.event_name == 'push'
+        shell: pwsh
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP "screens"
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          Copy-Item tests\screens\*.png $dir
+          Set-Location $dir
+          git init -q -b ci-screens
+          git config user.name "github-actions"
+          git config user.email "actions@users.noreply.github.com"
+          git add .
+          git commit -q -m "Bildschirmfotos von ${{ github.sha }}"
+          git push -q -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" ci-screens
 
       - name: Bausteine holen (OpenRGB, PawnIO, VC-Laufzeit)
         shell: pwsh

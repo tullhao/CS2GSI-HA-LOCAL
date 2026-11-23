@@ -43,7 +43,21 @@ QPushButton#StartButton:hover {{ background: #ffa04a; }}
 QPushButton#StartButton[running="true"] {{ background: {ERROR}; color: white; }}
 QPushButton#ColorButton {{ border-radius: 8px; min-width: 56px; min-height: 26px; padding: 0; }}
 
-QFrame#Card {{ background: {SURFACE}; border: 1px solid {BORDER}; border-radius: 14px; }}
+QPushButton#Small {{ padding: 6px 12px; border-radius: 8px; }}
+QPushButton#Link {{ background: transparent; border: none; color: {MUTED}; padding: 4px 6px; }}
+QPushButton#Link:hover, QPushButton#Link:checked {{ color: {TEXT}; }}
+QPushButton#Segment {{
+    background: {SURFACE}; border: 1px solid {BORDER}; border-radius: 16px; padding: 7px 16px; color: {MUTED};
+}}
+QPushButton#Segment:hover {{ color: {TEXT}; border-color: {MUTED}; }}
+QPushButton#Segment:checked {{ background: {ACCENT}; border-color: {ACCENT}; color: #111; font-weight: 700; }}
+
+QFrame#Card {{ background: {SURFACE}; border: 1px solid {BORDER}; border-radius: 16px; }}
+QFrame#Card[disabled="true"] {{ background: #13151a; }}
+QFrame#Inset {{ background: {BG}; border: 1px solid {BORDER}; border-radius: 12px; }}
+QLabel#CardHeading {{ font-size: 11.5pt; font-weight: 700; }}
+QLabel#Tag {{ color: {MUTED}; background: {SURFACE_2}; border-radius: 9px; padding: 2px 8px; font-size: 8.5pt; }}
+QLabel#LiveState {{ font-size: 20pt; font-weight: 800; }}
 QLabel#CardTitle {{ color: {MUTED}; font-size: 9pt; font-weight: 600; }}
 QLabel#CardText {{ font-size: 10.5pt; }}
 

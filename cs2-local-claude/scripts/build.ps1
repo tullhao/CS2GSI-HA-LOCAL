@@ -13,7 +13,6 @@ python -m PyInstaller --noconfirm --clean --onefile --windowed --uac-admin `
     --add-data "bundle\openrgb;openrgb" `
     --add-data "bundle\pawnio;pawnio" `
     --add-data "bundle\licenses;licenses" `
-    --collect-submodules openrgb `
     run.py
 if ($LASTEXITCODE -ne 0) { throw "PyInstaller fehlgeschlagen" }
 

@@ -8,20 +8,20 @@ import time
 from pathlib import Path
 
 from PySide6.QtCore import QObject, Qt, QTimer, Signal
-from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
-    QButtonGroup, QCheckBox, QColorDialog, QComboBox, QDoubleSpinBox, QFileDialog, QFrame, QGridLayout,
-    QHBoxLayout, QLabel, QMainWindow, QMessageBox, QPushButton, QScrollArea, QSlider, QSpinBox,
-    QStackedWidget, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
+    QButtonGroup, QFileDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QMainWindow, QMessageBox, QPushButton,
+    QScrollArea, QStackedWidget, QVBoxLayout, QWidget,
 )
 
 from .. import config, system
 from ..cs2_setup import find_cs2, normalize_cs2_dir, other_gsi_files, write_gsi_config
-from ..engine import LightEngine, state_color
+from ..engine import LightEngine
 from ..gsi_server import GSIServer
 from ..rgb_engine import RGBEngine, RGBEngineError
 from ..states import StateDetector
 from . import theme
+from .pages import DevicesPage, EffectsPage
+from .widgets import LedPreview
 
 log = logging.getLogger(__name__)
 
@@ -33,7 +33,7 @@ class Bridge(QObject):
     """Signale aus Hintergrund-Threads sicher in die Oberfläche bringen."""
     rgb_progress = Signal(str)
     rgb_done = Signal(bool, str)
-    test_done = Signal(str)
+    task_done = Signal(str, str)
     pawnio_done = Signal(bool, bool, str)
 
 
@@ -42,22 +42,22 @@ class StatusCard(QFrame):
         super().__init__()
         self.setObjectName("Card")
         lay = QHBoxLayout(self)
-        lay.setContentsMargins(16, 14, 16, 14)
+        lay.setContentsMargins(18, 16, 18, 16)
         lay.setSpacing(14)
         self.icon = QLabel("…")
-        self.icon.setFixedSize(34, 34)
+        self.icon.setFixedSize(40, 40)
         self.icon.setAlignment(Qt.AlignCenter)
         col = QVBoxLayout()
-        col.setSpacing(2)
-        t = QLabel(title.upper())
-        t.setObjectName("CardTitle")
+        col.setSpacing(3)
+        t = QLabel(title)
+        t.setObjectName("CardHeading")
         self.text = QLabel()
-        self.text.setObjectName("CardText")
+        self.text.setObjectName("Muted")
         self.text.setWordWrap(True)
         self.text.setTextInteractionFlags(Qt.TextSelectableByMouse)
         col.addWidget(t)
         col.addWidget(self.text)
-        lay.addWidget(self.icon)
+        lay.addWidget(self.icon, 0, Qt.AlignTop)
         lay.addLayout(col, 1)
         self.set("busy", "Wird geprüft …")
 
@@ -65,14 +65,14 @@ class StatusCard(QFrame):
         symbol, color = ICONS[state]
         self.icon.setText(symbol)
         self.icon.setStyleSheet(
-            f"background:{color}22; color:{color}; border-radius:17px; font-size:14pt; font-weight:800;")
+            f"background:{color}22; color:{color}; border-radius:20px; font-size:15pt; font-weight:800;")
         self.text.setText(text)
 
 
 def _title(text: str, sub: str) -> QWidget:
     w = QWidget()
     lay = QVBoxLayout(w)
-    lay.setContentsMargins(0, 0, 0, 8)
+    lay.setContentsMargins(0, 0, 0, 6)
     lay.setSpacing(4)
     t = QLabel(text)
     t.setObjectName("PageTitle")
@@ -89,14 +89,14 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.settings = settings
         self.setWindowTitle(f"{config.APP_NAME} {config.VERSION}")
-        self.resize(1180, 760)
-        self.setMinimumSize(980, 640)
+        self.resize(1240, 820)
+        self.setMinimumSize(1000, 660)
 
         opts = settings["options"]
         self.bridge = Bridge()
         self.bridge.rgb_progress.connect(lambda msg: self.card_rgb.set("busy", msg))
         self.bridge.rgb_done.connect(self._on_rgb_done)
-        self.bridge.test_done.connect(self._on_test_done)
+        self.bridge.task_done.connect(self._on_task_done)
         self.bridge.pawnio_done.connect(self._on_pawnio_done)
 
         self.rgb = RGBEngine(int(opts["openrgb_port"]))
@@ -105,7 +105,7 @@ class MainWindow(QMainWindow):
         self.gsi: GSIServer | None = None
         self.cs2_path: Path | None = None
         self.rgb_ready = False
-        self._populating = False
+        self._pawnio_force = False
 
         self._build()
         self.timer = QTimer(self)
@@ -125,7 +125,7 @@ class MainWindow(QMainWindow):
 
         side = QFrame()
         side.setObjectName("Sidebar")
-        side.setFixedWidth(230)
+        side.setFixedWidth(232)
         sl = QVBoxLayout(side)
         sl.setContentsMargins(16, 22, 16, 16)
         sl.setSpacing(6)
@@ -150,6 +150,7 @@ class MainWindow(QMainWindow):
             btn = QPushButton(label)
             btn.setObjectName("Nav")
             btn.setCheckable(True)
+            btn.setCursor(Qt.PointingHandCursor)
             btn.clicked.connect(lambda _=False, idx=i: self.stack.setCurrentIndex(idx))
             self.nav.addButton(btn, i)
             sl.addWidget(btn)
@@ -181,8 +182,17 @@ class MainWindow(QMainWindow):
         w = QWidget()
         lay = QVBoxLayout(w)
         lay.setContentsMargins(36, 30, 36, 30)
-        lay.setSpacing(14)
+        lay.setSpacing(16)
         return w, lay
+
+    def _next_button(self, text: str, idx: int) -> QHBoxLayout:
+        row = QHBoxLayout()
+        row.addStretch(1)
+        btn = QPushButton(text)
+        btn.setObjectName("Primary")
+        btn.clicked.connect(lambda: self.go(idx))
+        row.addWidget(btn)
+        return row
 
     # ---------------------------------------------------------------- Seite 1
     def _page_overview(self) -> QWidget:
@@ -190,11 +200,11 @@ class MainWindow(QMainWindow):
         lay.addWidget(_title("Übersicht", "Das Tool prüft dein System und richtet alles für diese Sitzung ein. "
                                           "Alles Nötige ist eingebaut, es wird nichts heruntergeladen."))
         grid = QGridLayout()
-        grid.setSpacing(12)
+        grid.setSpacing(14)
         self.card_admin = StatusCard("Adminrechte")
         self.card_cs2 = StatusCard("Counter-Strike 2")
-        self.card_gsi = StatusCard("Game State Integration")
-        self.card_driver = StatusCard("Treiber für RGB-Arbeitsspeicher (PawnIO)")
+        self.card_gsi = StatusCard("Spieldaten (Game State Integration)")
+        self.card_driver = StatusCard("Treiber für RGB-Arbeitsspeicher")
         self.card_rgb = StatusCard("RGB-Engine und Geräte")
         self.card_game = StatusCard("Verbindung zum Spiel")
         cards = [self.card_admin, self.card_cs2, self.card_gsi, self.card_driver, self.card_rgb, self.card_game]
@@ -203,17 +213,16 @@ class MainWindow(QMainWindow):
         lay.addLayout(grid)
 
         row = QHBoxLayout()
-        b1 = QPushButton("CS2-Ordner wählen …")
-        b1.clicked.connect(self._choose_cs2)
-        b2 = QPushButton("Config neu schreiben")
-        b2.clicked.connect(self._write_gsi)
+        for text, slot in (("CS2-Ordner wählen …", self._choose_cs2), ("Config neu schreiben", self._write_gsi)):
+            b = QPushButton(text)
+            b.setObjectName("Small")
+            b.clicked.connect(slot)
+            row.addWidget(b)
         self.btn_driver = QPushButton("Treiber installieren")
+        self.btn_driver.setObjectName("Small")
         self.btn_driver.clicked.connect(lambda: self._ask_pawnio(force=True))
         self.btn_driver.hide()
-        self.btn_reconnect = QPushButton("Geräte neu suchen")
-        self.btn_reconnect.clicked.connect(self._restart_rgb)
-        for b in (b1, b2, self.btn_driver, self.btn_reconnect):
-            row.addWidget(b)
+        row.addWidget(self.btn_driver)
         row.addStretch(1)
         nxt = QPushButton("Weiter zu den Geräten  →")
         nxt.setObjectName("Primary")
@@ -226,208 +235,74 @@ class MainWindow(QMainWindow):
     # ---------------------------------------------------------------- Seite 2
     def _page_devices(self) -> QWidget:
         w, lay = self._page()
-        lay.addWidget(_title("Geräte", "Alle erkannten RGB-Geräte deines PCs. Wähle die Zonen, die auf CS2 "
-                                       "reagieren sollen. Bei ARGB-Headern am Mainboard trägst du die Anzahl LEDs "
-                                       "deines Streifens oder Lüfters ein."))
-        self.tree = QTreeWidget()
-        self.tree.setHeaderLabels(["Gerät / Zone", "LEDs", "Typ"])
-        self.tree.setColumnWidth(0, 440)
-        self.tree.setColumnWidth(1, 110)
-        self.tree.setMinimumHeight(380)
-        self.tree.itemChanged.connect(self._on_tree_changed)
-        lay.addWidget(self.tree, 1)
-        row = QHBoxLayout()
-        self.btn_test = QPushButton("Auswahl testen")
-        self.btn_test.clicked.connect(self._test_devices)
-        b_all = QPushButton("Alle")
-        b_all.clicked.connect(lambda: self._check_all(True))
-        b_none = QPushButton("Keine")
-        b_none.clicked.connect(lambda: self._check_all(False))
-        for b in (self.btn_test, b_all, b_none):
-            row.addWidget(b)
-        self.dev_status = QLabel("Warte auf die RGB-Engine …")
-        self.dev_status.setObjectName("Muted")
-        row.addWidget(self.dev_status, 1)
-        nxt = QPushButton("Weiter zu den Effekten  →")
-        nxt.setObjectName("Primary")
-        nxt.clicked.connect(lambda: self.go(2))
-        row.addWidget(nxt)
-        lay.addLayout(row)
+        lay.addWidget(_title("Geräte", "Alle RGB-Geräte, die dein PC gefunden hat. Schalte ein, was auf CS2 "
+                                       "reagieren soll, oder wähle einzelne Zonen."))
+        self.devices_page = DevicesPage(self.settings)
+        self.devices_page.resize_requested.connect(self._resize_zone)
+        self.devices_page.test_requested.connect(self._test_devices)
+        self.devices_page.rescan_requested.connect(self._restart_rgb)
+        lay.addWidget(self.devices_page)
+        lay.addLayout(self._next_button("Weiter zu den Effekten  →", 2))
         return w
 
     # ---------------------------------------------------------------- Seite 3
     def _page_effects(self) -> QWidget:
         w, lay = self._page()
-        lay.addWidget(_title("Effekte", "Lege fest, wie deine LEDs auf jede Situation reagieren. Bei mehreren "
-                                        "gleichzeitig gewinnt die höhere Priorität. „Team“ nimmt die Farbe deines "
-                                        "Teams (CT/T). „Vorschau“ zeigt den Effekt 3 Sekunden auf deinen Geräten."))
-        opts_box = QFrame()
-        opts_box.setObjectName("Card")
-        og = QGridLayout(opts_box)
-        og.setContentsMargins(16, 14, 16, 14)
-        og.setHorizontalSpacing(18)
-        opts = self.settings["options"]
-
-        self.sl_bright = QSlider(Qt.Horizontal)
-        self.sl_bright.setRange(5, 100)
-        self.sl_bright.setValue(int(opts["brightness"]))
-        self.lbl_bright = QLabel(f"{opts['brightness']} %")
-        self.sl_bright.valueChanged.connect(self._on_brightness)
-
-        def spin(key, lo, hi, suffix, tip=""):
-            s = QSpinBox()
-            s.setRange(lo, hi)
-            s.setSuffix(suffix)
-            s.setValue(int(opts[key]))
-            s.setToolTip(tip)
-            s.valueChanged.connect(lambda v: self._set_opt(key, v))
-            return s
-
-        self.sp_low = spin("low_health_threshold", 2, 99, " HP")
-        self.sp_crit = spin("critical_health_threshold", 1, 98, " HP")
-        self.sp_ammo = spin("low_ammo_percent", 5, 90, " %")
-        self.sp_fps = spin("fps", 5, 60, " fps", "Wie oft pro Sekunde die LEDs aktualisiert werden. "
-                                                "Arbeitsspeicher mag eher 15–20.")
-        og.addWidget(QLabel("Gesamthelligkeit"), 0, 0)
-        og.addWidget(self.sl_bright, 0, 1)
-        og.addWidget(self.lbl_bright, 0, 2)
-        og.addWidget(QLabel("Wenig Leben ab"), 0, 3)
-        og.addWidget(self.sp_low, 0, 4)
-        og.addWidget(QLabel("Kritisch ab"), 0, 5)
-        og.addWidget(self.sp_crit, 0, 6)
-        og.addWidget(QLabel("Bildrate"), 1, 0)
-        og.addWidget(self.sp_fps, 1, 1)
-        og.addWidget(QLabel("Munition knapp ab"), 1, 3)
-        og.addWidget(self.sp_ammo, 1, 4)
-        reset = QPushButton("Standardwerte")
-        reset.clicked.connect(self._reset_effects)
-        og.addWidget(reset, 1, 6)
-        og.setColumnStretch(1, 1)
-        lay.addWidget(opts_box)
-
-        self.rows_holder = QVBoxLayout()
-        lay.addLayout(self.rows_holder)
-        self._build_effect_rows()
-
-        row = QHBoxLayout()
-        row.addStretch(1)
-        nxt = QPushButton("Weiter zu Live  →")
-        nxt.setObjectName("Primary")
-        nxt.clicked.connect(lambda: self.go(3))
-        row.addWidget(nxt)
-        lay.addLayout(row)
+        lay.addWidget(_title("Effekte", "Wie sollen deine LEDs reagieren? Jede Karte zeigt live, wie es aussieht. "
+                                        "„Auf Geräten zeigen“ spielt den Effekt 3 Sekunden auf deinen Geräten ab."))
+        self.effects_page = EffectsPage(self.settings, self._live_team)
+        self.effects_page.device_preview.connect(self._preview)
+        lay.addWidget(self.effects_page)
+        lay.addLayout(self._next_button("Weiter zu Live  →", 3))
         return w
 
-    def _build_effect_rows(self) -> None:
-        while self.rows_holder.count():
-            old = self.rows_holder.takeAt(0).widget()
-            if old:
-                old.deleteLater()
-        rows = QWidget()
-        rows.setObjectName("Rows")
-        g = QGridLayout(rows)
-        g.setContentsMargins(16, 12, 16, 12)
-        g.setHorizontalSpacing(12)
-        g.setVerticalSpacing(8)
-        heads = ["", "Situation", "Farbe", "Team", "Effekt", "Tempo", "Dauer", "Helligkeit", "Priorität", ""]
-        for col, head in enumerate(heads):
-            h = QLabel(head.upper())
-            h.setObjectName("CardTitle")
-            g.addWidget(h, 0, col)
-        states = self.settings["states"]
-        self._color_buttons: dict = {}
-        for r, sid in enumerate(config.STATE_ORDER, start=1):
-            st = states[sid]
-            chk = QCheckBox()
-            chk.setChecked(bool(st["enabled"]))
-            chk.toggled.connect(lambda v, s=sid: self._set_state(s, "enabled", v))
-            name = QLabel(st["name"])
-            name.setToolTip(st["desc"])
-            color = QPushButton()
-            color.setObjectName("ColorButton")
-            color.clicked.connect(lambda _=False, s=sid: self._pick_color(s))
-            self._color_buttons[sid] = color
-            team = QCheckBox()
-            team.setChecked(bool(st.get("team_color")))
-            team.setToolTip("Statt einer eigenen Farbe die Farbe deines Teams verwenden")
-            team.setEnabled(sid not in ("team_ct", "team_t"))
-            team.toggled.connect(lambda v, s=sid: (self._set_state(s, "team_color", v), self._paint_colors()))
-            effect = QComboBox()
-            for key, label in config.EFFECTS.items():
-                effect.addItem(label, key)
-            effect.setCurrentIndex(max(0, effect.findData(st["effect"])))
-            effect.currentIndexChanged.connect(
-                lambda _i, s=sid, c=effect: self._set_state(s, "effect", c.currentData()))
-            speed = QDoubleSpinBox()
-            speed.setRange(0.1, 15.0)
-            speed.setSingleStep(0.1)
-            speed.setSuffix(" Hz")
-            speed.setValue(float(st["speed"]))
-            speed.valueChanged.connect(lambda v, s=sid: self._set_state(s, "speed", v))
-            dur = QDoubleSpinBox()
-            dur.setRange(0.1, 15.0)
-            dur.setSingleStep(0.1)
-            dur.setSuffix(" s")
-            dur.setValue(float(st["duration"] or 1.0))
-            dur.valueChanged.connect(lambda v, s=sid: self._set_state(s, "duration", v))
-            dur.setEnabled(st["kind"] == "event")
-            dur.setToolTip("Nur für kurze Ereignisse (Kill, Treffer, Runde, Bombe entschärft …)")
-            inten = QSpinBox()
-            inten.setRange(0, 100)
-            inten.setSuffix(" %")
-            inten.setValue(int(st.get("intensity", 100)))
-            inten.valueChanged.connect(lambda v, s=sid: (self._set_state(s, "intensity", v), self._paint_colors()))
-            prio = QSpinBox()
-            prio.setRange(0, 200)
-            prio.setValue(int(st["priority"]))
-            prio.valueChanged.connect(lambda v, s=sid: self._set_state(s, "priority", v))
-            prev = QPushButton("Vorschau")
-            prev.clicked.connect(lambda _=False, s=sid: self._preview(s))
-            for col, widget in enumerate([chk, name, color, team, effect, speed, dur, inten, prio, prev]):
-                g.addWidget(widget, r, col)
-        g.setColumnStretch(1, 1)
-        self.rows_holder.addWidget(rows)
-        self._paint_colors()
+    def _live_team(self):
+        return self.detector.team if self.detector.connected() else None
 
     # ---------------------------------------------------------------- Seite 4
     def _page_live(self) -> QWidget:
         w, lay = self._page()
         lay.addWidget(_title("Live", "Starte CS2 ganz normal. Sobald du auf Start drückst, reagieren deine LEDs "
                                      "auf das Spiel. Stopp stellt die vorherigen Farben wieder her."))
+        hero = QFrame()
+        hero.setObjectName("Card")
+        hl = QVBoxLayout(hero)
+        hl.setContentsMargins(24, 22, 24, 22)
+        hl.setSpacing(14)
         top = QHBoxLayout()
-        top.setSpacing(24)
         self.btn_start = QPushButton("▶  START")
         self.btn_start.setObjectName("StartButton")
         self.btn_start.setProperty("running", False)
-        self.btn_start.setMinimumWidth(260)
+        self.btn_start.setMinimumWidth(240)
+        self.btn_start.setCursor(Qt.PointingHandCursor)
         self.btn_start.clicked.connect(self._toggle_run)
-        top.addWidget(self.btn_start, 0, Qt.AlignTop)
-
-        swatch_box = QFrame()
-        swatch_box.setObjectName("Card")
-        sb = QVBoxLayout(swatch_box)
-        sb.setContentsMargins(18, 16, 18, 16)
-        t = QLabel("AKTUELLE FARBE")
-        t.setObjectName("CardTitle")
-        self.swatch = QFrame()
-        self.swatch.setFixedHeight(70)
+        top.addWidget(self.btn_start)
+        top.addSpacing(20)
+        col = QVBoxLayout()
         self.lbl_top = QLabel("Gestoppt")
-        self.lbl_top.setStyleSheet("font-size:13pt;font-weight:600;")
-        sb.addWidget(t)
-        sb.addWidget(self.swatch)
-        sb.addWidget(self.lbl_top)
-        top.addWidget(swatch_box, 1)
-        lay.addLayout(top)
+        self.lbl_top.setObjectName("LiveState")
+        self.lbl_sub = QLabel("Drück auf Start, sobald du bereit bist.")
+        self.lbl_sub.setObjectName("Muted")
+        col.addStretch(1)
+        col.addWidget(self.lbl_top)
+        col.addWidget(self.lbl_sub)
+        col.addStretch(1)
+        top.addLayout(col, 1)
+        hl.addLayout(top)
+        self.live_leds = LedPreview(leds=32, height=46)
+        self.live_leds.set_source(self._live_frame)
+        hl.addWidget(self.live_leds)
+        lay.addWidget(hero)
 
         info = QFrame()
         info.setObjectName("Card")
         ig = QGridLayout(info)
-        ig.setContentsMargins(18, 16, 18, 16)
+        ig.setContentsMargins(22, 18, 22, 18)
         ig.setHorizontalSpacing(30)
-        ig.setVerticalSpacing(10)
+        ig.setVerticalSpacing(12)
         self.info_labels: dict = {}
         fields = [("map", "Karte"), ("phase", "Phase"), ("team", "Team"), ("health", "Leben"),
-                  ("armor", "Rüstung"), ("bomb", "Bombe"), ("c4", "C4-Vorschau"), ("active", "Aktive Zustände")]
+                  ("armor", "Rüstung"), ("bomb", "Bombe"), ("c4", "C4-Vorschau"), ("active", "Aktive Situationen")]
         for i, (key, label) in enumerate(fields):
             k = QLabel(label.upper())
             k.setObjectName("CardTitle")
@@ -444,6 +319,16 @@ class MainWindow(QMainWindow):
         lay.addWidget(hint)
         lay.addStretch(1)
         return w
+
+    def _live_frame(self, _elapsed: float, n: int):
+        """Was die Geräte gerade zeigen (oder zeigen würden, wenn Live läuft)."""
+        now = time.monotonic()
+        brightness = max(0.0, min(1.0, float(self.settings["options"]["brightness"]) / 100.0))
+        layers = self.engine.layers(now, self.settings)
+        frame = self.engine.compose(layers, n, brightness)
+        if not self.engine.running:
+            frame = [tuple(int(v * 0.35) for v in c) for c in frame]
+        return frame
 
     # ================================================================ Setup-Ablauf
     def _run_setup(self) -> None:
@@ -471,12 +356,12 @@ class MainWindow(QMainWindow):
     # ---- Schritt: PawnIO
     def _driver_step(self) -> None:
         if system.pawnio_installed():
-            self.card_driver.set("ok", "Installiert. Arbeitsspeicher und Mainboard können erkannt werden.")
+            self.card_driver.set("ok", "PawnIO ist installiert. Arbeitsspeicher und Mainboard können erkannt werden.")
             self._conflict_step()
             return
         self.btn_driver.show()
         if self.settings.get("pawnio_declined"):
-            self.card_driver.set("warn", "Nicht installiert. RGB-Arbeitsspeicher wird übersprungen.")
+            self.card_driver.set("warn", "PawnIO ist nicht installiert. RGB-Arbeitsspeicher wird übersprungen.")
             self._conflict_step()
             return
         self._ask_pawnio(force=False)
@@ -486,7 +371,7 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, config.APP_NAME, "Für die Treiber-Installation braucht das Tool "
                                     "Adminrechte. Bitte das Tool neu starten und die Windows-Abfrage bestätigen.")
             if not force:
-                self.card_driver.set("warn", "Nicht installiert (keine Adminrechte).")
+                self.card_driver.set("warn", "PawnIO ist nicht installiert (keine Adminrechte).")
                 self._conflict_step()
             return
         box = QMessageBox(self)
@@ -508,19 +393,19 @@ class MainWindow(QMainWindow):
         box.exec()
         if box.clickedButton() is not install:
             self.settings["pawnio_declined"] = True
-            self.card_driver.set("warn", "Nicht installiert. RGB-Arbeitsspeicher wird übersprungen.")
+            self.card_driver.set("warn", "PawnIO ist nicht installiert. RGB-Arbeitsspeicher wird übersprungen.")
             if not force:
                 self._conflict_step()
             return
         self.settings["pawnio_declined"] = False
         self.card_driver.set("busy", "Installiere PawnIO …")
         self.btn_driver.setEnabled(False)
+        self._pawnio_force = force
 
         def work():
             ok, reboot, msg = system.install_pawnio()
             self.bridge.pawnio_done.emit(ok, reboot, msg)
 
-        self._pawnio_force = force
         threading.Thread(target=work, name="pawnio-setup", daemon=True).start()
 
     def _on_pawnio_done(self, ok: bool, reboot: bool, msg: str) -> None:
@@ -533,7 +418,7 @@ class MainWindow(QMainWindow):
         else:
             self.card_driver.set("error", msg)
             QMessageBox.warning(self, config.APP_NAME, f"{msg}\n\nDas Tool läuft ohne RGB-Arbeitsspeicher weiter.")
-        if getattr(self, "_pawnio_force", False):
+        if self._pawnio_force:
             self._restart_rgb()
         else:
             self._conflict_step()
@@ -559,9 +444,7 @@ class MainWindow(QMainWindow):
     # ---- Schritt: RGB-Engine
     def _start_rgb(self) -> None:
         self.rgb_ready = False
-        self.btn_reconnect.setEnabled(False)
         self.card_rgb.set("busy", "Starte …")
-        self.dev_status.setText("Warte auf die RGB-Engine …")
 
         def work():
             try:
@@ -581,15 +464,14 @@ class MainWindow(QMainWindow):
             return
         self.rgb.shutdown()
         if system.pawnio_installed():
-            self.card_driver.set("ok", "Installiert. Arbeitsspeicher und Mainboard können erkannt werden.")
+            self.card_driver.set("ok", "PawnIO ist installiert. Arbeitsspeicher und Mainboard können erkannt werden.")
             self.btn_driver.hide()
         self._start_rgb()
 
     def _on_rgb_done(self, ok: bool, message: str) -> None:
-        self.btn_reconnect.setEnabled(True)
         if not ok:
             self.card_rgb.set("error", message)
-            self.dev_status.setText("RGB-Engine nicht verbunden.")
+            self.devices_page.populate([])
             return
         self.rgb_ready = True
         zones = self.rgb.zones()
@@ -600,14 +482,14 @@ class MainWindow(QMainWindow):
             self.card_rgb.set("warn", "Bereit, aber keine RGB-Geräte gefunden. Adminrechte? Andere RGB-Software offen?")
         known = {z["key"] for z in zones}
         self.settings["devices"] = [k for k in self.settings["devices"] if k in known]
-        self._populate_tree(zones)
+        self.devices_page.populate(zones)
 
     # ================================================================ CS2
     def _set_cs2(self, path: Path | None) -> None:
         self.cs2_path = path
         if path:
             self.settings["cs2_path"] = str(path)
-            self.card_cs2.set("ok", f"Gefunden und kompatibel:\n{path}")
+            self.card_cs2.set("ok", f"Gefunden und kompatibel.\n{path}")
         else:
             self.card_cs2.set("error", "Nicht gefunden. Bitte den CS2-Ordner manuell wählen.")
 
@@ -643,59 +525,7 @@ class MainWindow(QMainWindow):
             text += f"\nWeitere Configs bleiben aktiv: {', '.join(others)}"
         self.card_gsi.set("ok", text)
 
-    # ================================================================ Geräte
-    def _populate_tree(self, zones: list) -> None:
-        self._populating = True
-        self.tree.clear()
-        selected = set(self.settings["devices"])
-        parents: dict = {}
-        for z in zones:
-            parent = parents.get(z["device"])
-            if parent is None:
-                parent = QTreeWidgetItem([z["device"], "", z["type"]])
-                parent.setFlags(parent.flags() | Qt.ItemIsAutoTristate | Qt.ItemIsUserCheckable)
-                parents[z["device"]] = parent
-                self.tree.addTopLevelItem(parent)
-            item = QTreeWidgetItem([z["zone"], "" if z["resizable"] else str(z["leds"]), ""])
-            item.setData(0, Qt.UserRole, z["key"])
-            item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
-            item.setCheckState(0, Qt.Checked if z["key"] in selected else Qt.Unchecked)
-            parent.addChild(item)
-            if z["resizable"]:
-                spin = QSpinBox()
-                spin.setRange(z["leds_min"], z["leds_max"] or 300)
-                spin.setValue(z["leds"])
-                spin.setToolTip("Anzahl LEDs am ARGB-Header (steht auf der Verpackung von Streifen oder Lüfter)")
-                spin.editingFinished.connect(lambda k=z["key"], s=spin: self._resize_zone(k, s.value()))
-                self.tree.setItemWidget(item, 1, spin)
-        self.tree.expandAll()
-        self._populating = False
-        self._update_dev_status()
-
-    def _selected_keys(self) -> list:
-        keys = []
-        for i in range(self.tree.topLevelItemCount()):
-            parent = self.tree.topLevelItem(i)
-            for j in range(parent.childCount()):
-                child = parent.child(j)
-                if child.checkState(0) == Qt.Checked:
-                    keys.append(child.data(0, Qt.UserRole))
-        return keys
-
-    def _on_tree_changed(self, _item, column: int) -> None:
-        if self._populating or column != 0:
-            return
-        self.settings["devices"] = self._selected_keys()
-        self._update_dev_status()
-
-    def _update_dev_status(self) -> None:
-        n = len(self.settings["devices"])
-        self.dev_status.setText(f"{n} Zone{'n' if n != 1 else ''} ausgewählt")
-
-    def _check_all(self, on: bool) -> None:
-        for i in range(self.tree.topLevelItemCount()):
-            self.tree.topLevelItem(i).setCheckState(0, Qt.Checked if on else Qt.Unchecked)
-
+    # ================================================================ Geräte-Aktionen
     def _resize_zone(self, key: str, size: int) -> None:
         if self.rgb.led_count(key) == size:
             return
@@ -705,71 +535,43 @@ class MainWindow(QMainWindow):
         try:
             self.rgb.resize(key, size)
             self.settings.setdefault("zone_sizes", {})[key] = size
+            self.devices_page.update_zone(key, self.rgb.led_count(key))
         except Exception as exc:  # noqa: BLE001
             QMessageBox.warning(self, config.APP_NAME, f"LED-Anzahl konnte nicht gesetzt werden: {exc}")
 
-    def _test_devices(self) -> None:
-        if not self._ready_for_light():
+    def _run_task(self, name: str, fn) -> None:
+        def work():
+            try:
+                fn()
+                self.bridge.task_done.emit(name, "")
+            except Exception as exc:  # noqa: BLE001
+                log.exception("%s fehlgeschlagen", name)
+                self.bridge.task_done.emit(name, str(exc))
+
+        threading.Thread(target=work, name=name, daemon=True).start()
+
+    def _test_devices(self, keys: list) -> None:
+        if not self.rgb_ready:
+            QMessageBox.information(self, config.APP_NAME, "Die RGB-Engine ist noch nicht bereit.")
             return
         if self.engine.busy:
             QMessageBox.information(self, config.APP_NAME, "Während Live läuft, ist kein Test möglich.")
             return
-        keys = list(self.settings["devices"])
-        self.btn_test.setEnabled(False)
-        self.dev_status.setText("Teste … die gewählten Zonen blinken türkis.")
 
-        def work():
+        def test():
             try:
                 self.rgb.test(keys)
-                self.bridge.test_done.emit("")
-            except Exception as exc:  # noqa: BLE001
-                self.bridge.test_done.emit(str(exc))
+            except ConnectionError:
+                self.rgb.reconnect()
+                self.rgb.test(keys)
 
-        threading.Thread(target=work, name="rgb-test", daemon=True).start()
+        self._run_task("Test", test)
 
-    def _on_test_done(self, error: str) -> None:
-        self.btn_test.setEnabled(True)
+    def _on_task_done(self, name: str, error: str) -> None:
         if error:
-            QMessageBox.warning(self, config.APP_NAME, f"Test fehlgeschlagen: {error}")
-        self._update_dev_status()
+            QMessageBox.warning(self, config.APP_NAME, f"{name} fehlgeschlagen: {error}")
 
     # ================================================================ Effekte
-    def _set_state(self, sid: str, key: str, value) -> None:
-        self.settings["states"][sid][key] = value
-
-    def _set_opt(self, key: str, value) -> None:
-        self.settings["options"][key] = value
-
-    def _on_brightness(self, value: int) -> None:
-        self._set_opt("brightness", value)
-        self.lbl_bright.setText(f"{value} %")
-
-    def _paint_colors(self) -> None:
-        states = self.settings["states"]
-        team = self.detector.team
-        for sid, button in self._color_buttons.items():
-            st = states[sid]
-            r, g, b = state_color(st, states, team)
-            shown = "#{:02x}{:02x}{:02x}".format(*st["color"])
-            button.setStyleSheet(f"background: rgb({r},{g},{b});")
-            button.setToolTip("Teamfarbe" if st.get("team_color") else f"Farbe {shown}")
-            button.setEnabled(not st.get("team_color"))
-
-    def _pick_color(self, sid: str) -> None:
-        st = self.settings["states"][sid]
-        r, g, b = st["color"]
-        chosen = QColorDialog.getColor(QColor(r, g, b), self, f"Farbe für „{st['name']}“")
-        if chosen.isValid():
-            self._set_state(sid, "color", [chosen.red(), chosen.green(), chosen.blue()])
-            self._paint_colors()
-
-    def _reset_effects(self) -> None:
-        if QMessageBox.question(self, config.APP_NAME, "Alle Effekte auf die Standardwerte zurücksetzen?") \
-                != QMessageBox.Yes:
-            return
-        self.settings["states"] = config.default_states()
-        self._build_effect_rows()
-
     def _ready_for_light(self) -> bool:
         if not self.rgb_ready:
             QMessageBox.information(self, config.APP_NAME, "Die RGB-Engine ist noch nicht bereit.")
@@ -813,13 +615,15 @@ class MainWindow(QMainWindow):
             self.btn_start.style().polish(self.btn_start)
         status = self.engine.status
         if status.get("error"):
-            self.lbl_top.setText(f"Fehler: {status['error']}")
-        elif self.engine.busy and status.get("top"):
-            self.lbl_top.setText(status["top"])
+            self.lbl_top.setText("Fehler")
+            self.lbl_sub.setText(f"{status['error']} – Details im Log ({config.LOG_FILE.name}).")
+        elif running:
+            self.lbl_top.setText(status.get("top") or "Läuft")
+            self.lbl_sub.setText(f"{len(self.settings['devices'])} Zonen reagieren auf CS2.")
         else:
             self.lbl_top.setText("Gestoppt")
-        r, g, b = status.get("color", (0, 0, 0)) if self.engine.busy else (0, 0, 0)
-        self.swatch.setStyleSheet(f"background: rgb({r},{g},{b}); border-radius: 12px; border:1px solid {theme.BORDER};")
+            self.lbl_sub.setText("Drück auf Start, sobald du bereit bist. Die LEDs unten zeigen schon, "
+                                 "was passieren würde.")
         self.side_status.setText("● Live aktiv" if running else ("● CS2 verbunden" if connected else "● Bereit"))
         self.side_status.setStyleSheet(f"color: {theme.OK if running else theme.MUTED};")
 
