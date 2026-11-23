@@ -163,7 +163,13 @@ def test_c4_beat():
     assert abs(gaps[0] - 1.0) < 0.01, gaps[0]          # anfangs 1 Piep pro Sekunde
     assert all(g1 >= g2 - 1e-9 for g1, g2 in zip(gaps, gaps[1:]))  # wird nur schneller
     assert abs(gaps[-1] - 0.15) < 1e-6 and beeps[-1] < 40.0  # am Ende ~7 pro Sekunde
-    assert c4_level(beeps[10] + 0.01) == 1.0 and c4_level(beeps[10] - 0.05) < 0.2  # an beim Piep, sonst dunkel
+    assert c4_level(0.1) == 1.0 and c4_level(0.5) == 0.0 and c4_level(1.05) == 1.0  # anfangs ~0,3 s an, dann aus
+    assert c4_level(beeps[10] + 0.01) == 1.0 and c4_level(beeps[10] - 0.05) == 0.0  # an beim Piep, sonst aus
+    old5 = {"version": 4, "states": {"warmup": {"effect": "pulse"}}}
+    with tempfile.TemporaryDirectory() as tmp:
+        config.SETTINGS_FILE = Path(tmp) / "s.json"
+        config.SETTINGS_FILE.write_text(json.dumps(old5))
+        assert config.load_settings()["states"]["warmup"]["effect"] == "solid"
     # Alle Bomben-Ebenen laufen auf der Uhr ab dem Legen (auch „wäre tödlich“, das später beginnt)
     settings = config.default_settings()
     eng = LightEngine.__new__(LightEngine)

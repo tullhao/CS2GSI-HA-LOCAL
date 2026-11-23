@@ -53,7 +53,8 @@ _DEFAULT_STATES = [
      "Grundfarbe als Counter-Terrorist. Diese Farbe ist auch die „Teamfarbe“ für andere Situationen."),
     ("team_t", "Team T", "state", (0, 255, 0), False, "solid", 1.0, 0, 35, 10,
      "Grundfarbe als Terrorist. Diese Farbe ist auch die „Teamfarbe“ für andere Situationen."),
-    ("warmup", "Aufwärmphase", "state", (120, 120, 255), True, "pulse", 0.4, 0, 60, 15, "Warmup vor dem Match."),
+    ("warmup", "Aufwärmphase", "state", (120, 120, 255), True, "solid", 0.4, 0, 60, 15,
+     "Warmup vor dem Match: ruhige Teamfarbe."),
     ("freezetime", "Kaufphase", "state", (255, 255, 255), True, "solid", 1.0, 0, 100, 20,
      "Freezetime zu Rundenbeginn: volle Teamfarbe."),
     ("smoked", "In der Smoke", "state", (24, 24, 24), True, "solid", 1.0, 0, 12, 25, "Du stehst in einer Smoke."),
@@ -174,7 +175,7 @@ def default_states() -> dict:
 
 def default_settings() -> dict:
     return {
-        "version": 4,
+        "version": 5,
         "cs2_path": None,
         "gsi_token": None,
         "pawnio_declined": False,
@@ -228,6 +229,10 @@ def load_settings() -> dict | None:
             if st and st.get("effect") == old:
                 st.pop("effect", None)
                 st.pop("color", None)
+    if int(data.get("version", 2)) < 5:  # Aufwärmphase pulsiert nicht mehr (störte in Bot-Matches)
+        st = data.get("states", {}).get("warmup")
+        if st and st.get("effect") == "pulse":
+            st.pop("effect", None)
     for sid, st in data.get("states", {}).items():
         if sid in merged["states"]:
             for key in STATE_KEYS:

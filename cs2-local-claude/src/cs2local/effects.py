@@ -53,15 +53,19 @@ _C4_BEEPS = c4_beeps()
 
 
 def c4_level(t: float) -> float:
-    """Helligkeit im Piep-Takt: bei jedem Piep kurz voll, dann schnell abklingen, dazwischen fast dunkel."""
+    """Hartes An/Aus im Piep-Takt, wie im alten local_pc-Bridge.
+
+    Pro Piep-Periode ist das Licht etwa die Hälfte an (0.14 bis 0.30 s), danach ganz aus.
+    """
     if t < 0:
         return 0.0
     if t >= C4_TIMER:
         return 1.0
-    since = t - _C4_BEEPS[bisect.bisect_right(_C4_BEEPS, t) - 1]
-    if since < 0.07:
-        return 1.0
-    return max(0.06, 1.0 - (since - 0.07) / 0.12)
+    k = bisect.bisect_right(_C4_BEEPS, t) - 1
+    start = _C4_BEEPS[k]
+    period = (_C4_BEEPS[k + 1] if k + 1 < len(_C4_BEEPS) else C4_TIMER) - start
+    on_time = min(0.30, max(0.14, period * 0.48))
+    return 1.0 if t - start < on_time else 0.0
 
 
 def render(effect: str, color, speed: float, t: float, n: int, duration: float = 0.0) -> list:

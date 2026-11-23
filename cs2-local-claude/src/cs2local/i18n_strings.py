@@ -395,7 +395,7 @@ _T: dict[str, tuple[str, str]] = {
         "Base color as Terrorist. This color is also the “team color” for other situations.",
         "Cor base como Terrorista. Esta cor também é a “cor do time” para outras situações."),
     "Aufwärmphase": ("Warmup", "Aquecimento"),
-    "Warmup vor dem Match.": ("Warmup before the match.", "Aquecimento antes da partida."),
+    "Warmup vor dem Match: ruhige Teamfarbe.": ("Warmup before the match: calm team color.", "Aquecimento antes da partida: cor do time estável."),
     "Freezetime zu Rundenbeginn: volle Teamfarbe.": ("Freeze time at round start: full team color.", "Freeze time no início da rodada: cor do time no máximo."),
     "In der Smoke": ("In a smoke", "Na smoke"),
     "Du stehst in einer Smoke.": ("You are standing in a smoke.", "Você está dentro de uma smoke."),
