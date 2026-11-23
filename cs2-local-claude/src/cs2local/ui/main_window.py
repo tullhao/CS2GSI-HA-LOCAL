@@ -22,7 +22,7 @@ from ..states import StateDetector
 from . import theme
 from .check_dialog import DeviceCheckDialog
 from .pages import DevicesPage, EffectsPage, ZoneSetupDialog
-from .setup_view import SetupView
+from .setup_view import ClosingDialog, SetupView
 from .widgets import LedPreview
 
 log = logging.getLogger(__name__)
@@ -38,6 +38,8 @@ class Bridge(QObject):
     task_done = Signal(str, str)
     pawnio_done = Signal(bool, bool, str)
     software_done = Signal(object)
+    close_step = Signal(int)
+    close_done = Signal()
 
 
 def _title(text: str, sub: str) -> QWidget:
@@ -749,13 +751,45 @@ class MainWindow(QMainWindow):
 
     # ================================================================ Ende
     def closeEvent(self, event) -> None:  # noqa: N802
+        if getattr(self, "_shutdown_done", False):
+            super().closeEvent(event)
+            return
+        event.ignore()
+        if getattr(self, "_closing", False):
+            return
+        self._closing = True
         self.timer.stop()
-        self.engine.stop(wait=True)
-        config.save_settings(self.settings)
-        if self.gsi:
-            self.gsi.stop()
-        self.rgb.shutdown()
-        errors = vendor_apps.resume()  # pausierte Hersteller-Software wieder starten
-        if errors:
-            log.warning("Neustart der Hersteller-Software unvollständig: %s", errors)
-        super().closeEvent(event)
+        pending = vendor_apps.load_pending()
+        apps = sorted({p.get("vendor", "") for p in pending["processes"]} - {""})
+        steps = ["Farben zurücksetzen", "RGB-Engine beenden"]
+        if pending["services"] or pending["processes"]:
+            steps.append("Wieder starten: " + (", ".join(apps) if apps else "pausierte RGB-Software"))
+        self._closing_view = ClosingDialog(steps, self)
+        self._closing_view.show()
+        self.bridge.close_step.connect(self._closing_view.set_step)
+        self.bridge.close_done.connect(self._finish_close)
+
+        def work():
+            try:
+                self.bridge.close_step.emit(0)
+                self.engine.stop(wait=True)
+                config.save_settings(self.settings)
+                if self.gsi:
+                    self.gsi.stop()
+                self.bridge.close_step.emit(1)
+                self.rgb.shutdown()
+                if len(steps) > 2:
+                    self.bridge.close_step.emit(2)
+                    errors = vendor_apps.resume()
+                    if errors:
+                        log.warning("Neustart der Hersteller-Software unvollständig: %s", errors)
+            except Exception:  # noqa: BLE001
+                log.exception("Fehler beim Beenden")
+            self.bridge.close_step.emit(len(steps))
+            self.bridge.close_done.emit()
+
+        threading.Thread(target=work, name="shutdown", daemon=True).start()
+
+    def _finish_close(self) -> None:
+        self._shutdown_done = True
+        QTimer.singleShot(400, self.close)

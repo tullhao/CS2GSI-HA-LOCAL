@@ -11,6 +11,7 @@ import logging
 import os
 import socket
 import subprocess
+import sys
 import threading
 import time
 from pathlib import Path
@@ -51,8 +52,37 @@ class RGBEngine:
     def dev_available() -> bool:
         return (config.OPENRGB_DEV_DIR / "OpenRGB.exe").exists()
 
+    @staticmethod
+    def _stage(base: Path) -> Path:
+        """Kopiert die Engine einmalig neben die EXE (Ordner _engine), statt sie aus dem Temp-Ordner zu starten.
+
+        Sonst hält Windows beim Beenden den Temp-Ordner der EXE fest („Failed to remove temporary directory“).
+        Pro Engine-Version ein Unterordner; alte Versionen werden entfernt.
+        """
+        if not getattr(sys, "frozen", False) or not (base / "OpenRGB.exe").exists():
+            return base
+        import hashlib
+        import shutil
+        digest = hashlib.sha1((base / "OpenRGB.exe").read_bytes()).hexdigest()[:10]
+        root = config.app_dir() / "_engine"
+        target = root / f"{base.name}-{digest}"
+        try:
+            if not (target / "OpenRGB.exe").exists():
+                tmp = root / f".tmp-{base.name}-{digest}"
+                shutil.rmtree(tmp, ignore_errors=True)
+                shutil.copytree(base, tmp)
+                tmp.rename(target)
+                for old in root.glob(f"{base.name}-*"):
+                    if old != target:
+                        shutil.rmtree(old, ignore_errors=True)
+            return target
+        except OSError as exc:
+            log.warning("Engine-Ordner neben der EXE nicht möglich (%s), nutze Temp-Ordner", exc)
+            return base
+
     def find_exe(self) -> Path | None:
         base = config.OPENRGB_DEV_DIR if self.variant == "dev" and self.dev_available() else config.OPENRGB_DIR
+        base = self._stage(base)
         direct = base / "OpenRGB.exe"
         if direct.exists():
             return direct
@@ -187,9 +217,17 @@ class RGBEngine:
         if self.proc and self.proc.poll() is None:
             self.proc.terminate()
             try:
-                self.proc.wait(timeout=5)
+                self.proc.wait(timeout=4)
             except subprocess.TimeoutExpired:
-                self.proc.kill()
+                if os.name == "nt":  # ganzen Prozessbaum beenden
+                    subprocess.run(["taskkill", "/F", "/T", "/PID", str(self.proc.pid)], capture_output=True,
+                                   creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+                else:
+                    self.proc.kill()
+                try:
+                    self.proc.wait(timeout=4)
+                except subprocess.TimeoutExpired:
+                    pass
             log.info("RGB-Engine beendet")
         self.proc = None
         if self._log_handle:

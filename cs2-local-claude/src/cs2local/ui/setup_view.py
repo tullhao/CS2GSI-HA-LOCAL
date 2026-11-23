@@ -10,7 +10,7 @@ import time
 
 from PySide6.QtCore import QRectF, Qt, QTimer
 from PySide6.QtGui import QColor, QPainter
-from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QDialog, QFrame, QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget
 
 from . import theme
 
@@ -126,3 +126,35 @@ class SetupView(QFrame):
             self.headline.setText("Bereit – mit Hinweisen")
         else:
             self.headline.setText("Alles bereit")
+
+
+class ClosingDialog(QDialog):
+    """Zeigt beim Schliessen, was gerade passiert, statt einfach „Keine Rückmeldung“."""
+
+    def __init__(self, steps: list, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Wird beendet …")
+        self.setModal(True)
+        self.setWindowFlag(Qt.WindowCloseButtonHint, False)
+        self.setMinimumWidth(460)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(26, 22, 26, 22)
+        lay.setSpacing(8)
+        head = QLabel("Alles wird sauber zurückgegeben …")
+        head.setObjectName("CardHeading")
+        lay.addWidget(head)
+        lay.addSpacing(6)
+        self.bar = StepBar(len(steps))
+        lay.addWidget(self.bar)
+        lay.addSpacing(6)
+        self.rows = [StepRow(text, i, self.bar) for i, text in enumerate(steps)]
+        for row in self.rows:
+            row.set("pending", "")
+            lay.addWidget(row)
+
+    def set_step(self, index: int) -> None:
+        for i, row in enumerate(self.rows):
+            if i < index:
+                row.set("ok", "Erledigt")
+            elif i == index:
+                row.set("busy", "Läuft …")

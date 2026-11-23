@@ -185,6 +185,17 @@ win.go(3)
 win._tick()  # noqa: SLF001
 shot("4_live")
 
-win.timer.stop()
-win.hide()
+# Beenden: Fenster bleibt bedienbar, Schritte werden angezeigt, danach schliesst es sich
+import time  # noqa: E402
+
+win.close()
+for _ in range(5):
+    app.processEvents()
+assert win._closing_view.isVisible(), "kein Beenden-Fenster"  # noqa: SLF001
+win._closing_view.grab().save(str(SHOTS / "5_beenden.png"))  # noqa: SLF001
+deadline = time.monotonic() + 20
+while win.isVisible() and time.monotonic() < deadline:
+    app.processEvents()
+    time.sleep(0.05)
+assert not win.isVisible(), "Fenster schliesst nicht"
 print("UI ok, Bilder in", SHOTS)
