@@ -180,6 +180,8 @@ def default_settings() -> dict:
         "fans_off": {},
         "device_methods": {},
         "engine": "stable",
+        "language": "en",
+        "language_chosen": False,
         "device_check_done": False,
         "states": default_states(),
         "options": dict(DEFAULT_OPTIONS),
@@ -205,6 +207,8 @@ def load_settings() -> dict | None:
     merged["device_methods"] = {str(k): str(v) for k, v in data.get("device_methods", {}).items()
                                 if v in ("direct", "static")}
     merged["engine"] = "dev" if data.get("engine") == "dev" else "stable"
+    merged["language"] = data.get("language") if data.get("language") in ("en", "de", "pt") else "en"
+    merged["language_chosen"] = data.get("language") in ("en", "de", "pt")
     merged["device_check_done"] = bool(data.get("device_check_done", False))
     merged["fans_off"] = {str(k): [int(i) for i in v] for k, v in data.get("fans_off", {}).items()}
     for key, value in data.get("options", {}).items():

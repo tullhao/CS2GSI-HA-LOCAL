@@ -85,6 +85,10 @@ class Device:
     modes: list = field(default_factory=list)
     zones: list = field(default_factory=list)
     colors: list = field(default_factory=list)  # 0x00BBGGRR
+    description: str = ""
+    version: str = ""
+    serial: str = ""
+    location: str = ""
 
     @property
     def type_name(self) -> str:
@@ -141,10 +145,10 @@ def parse_device(index: int, body: bytes, version: int) -> Device:
     dev_type = r.i32()
     name = r.string()
     vendor = r.string() if version >= 1 else ""
-    r.string()  # Beschreibung
-    r.string()  # Version
-    r.string()  # Seriennummer
-    r.string()  # Ort
+    description = r.string()
+    fw_version = r.string()
+    serial = r.string()
+    location = r.string()
     num_modes = r.u16()
     active_mode = r.i32()
     modes = []
@@ -181,7 +185,8 @@ def parse_device(index: int, body: bytes, version: int) -> Device:
     for _ in range(r.u16()):  # LEDs
         r.string(); r.u32()
     colors = [r.u32() for _ in range(r.u16())]
-    return Device(index, name, dev_type, vendor, active_mode, modes, zones, colors)
+    return Device(index, name, dev_type, vendor, active_mode, modes, zones, colors,
+                  description, fw_version, serial, location)
 
 
 def pack_color(c) -> bytes:

@@ -19,6 +19,7 @@ from pathlib import Path
 from . import config
 from .config import app_dir
 from .sdk_client import COLOR_MODE_PER_LED, SDKClient, SDKError
+from .i18n import tr
 
 log = logging.getLogger(__name__)
 
@@ -109,8 +110,8 @@ class RGBEngine:
     def _launch(self, progress) -> None:
         exe = self.find_exe()
         if not exe:
-            raise RGBEngineError("Die eingebaute RGB-Engine fehlt in diesem Build (OpenRGB.exe).")
-        progress("Starte die RGB-Engine im Hintergrund …")
+            raise RGBEngineError(tr("Die eingebaute RGB-Engine fehlt in diesem Build (OpenRGB.exe)."))
+        progress(tr("Starte die RGB-Engine im Hintergrund …"))
         flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
         try:
             self._log_handle = open(ENGINE_LOG, "w", encoding="utf-8", errors="replace")  # noqa: SIM115
@@ -130,8 +131,8 @@ class RGBEngine:
         last_error: Exception | None = None
         while time.monotonic() < deadline:
             if self.proc and self.proc.poll() is not None:
-                raise RGBEngineError(f"Die RGB-Engine wurde unerwartet beendet (Code {self.proc.returncode}). "
-                                     f"Details: {ENGINE_LOG.name}")
+                raise RGBEngineError(tr("Die RGB-Engine wurde unerwartet beendet (Code {v0}). Details: {v1}",
+                                        v0=self.proc.returncode, v1=ENGINE_LOG.name))
             client = SDKClient("127.0.0.1", self.port)
             try:
                 client.connect()
@@ -141,16 +142,16 @@ class RGBEngine:
                 client.close()
                 last_error = exc
                 time.sleep(1.0)
-        raise RGBEngineError(f"Keine Verbindung zur RGB-Engine möglich: {last_error}")
+        raise RGBEngineError(tr("Keine Verbindung zur RGB-Engine möglich: {v0}", v0=last_error))
 
     def start(self, zone_sizes: dict | None = None, progress=lambda msg: None) -> None:
         with self.lock:
             if self._port_open():
-                progress("Eine laufende OpenRGB-Instanz wurde gefunden, verbinde …")
+                progress(tr("Eine laufende OpenRGB-Instanz wurde gefunden, verbinde …"))
             else:
                 self._launch(progress)
             self._connect(time.monotonic() + 60)
-            progress("Suche RGB-Geräte (das dauert ein paar Sekunden) …")
+            progress(tr("Suche RGB-Geräte (das dauert ein paar Sekunden) …"))
             self._wait_for_devices()
             for key, size in (zone_sizes or {}).items():
                 try:
@@ -160,6 +161,8 @@ class RGBEngine:
                     log.warning("Zonengrösse für %s nicht setzbar", key)
             log.info("RGB-Engine bereit: %d Geräte, %d Zonen", len(self.devices), len(self._zones))
             for dev in self.devices:
+                log.info("  %s: Beschreibung=%r Version=%r Seriennr=%r Ort=%r", dev.name, dev.description,
+                         dev.version, dev.serial, dev.location)
                 log.info("  %s (%s): %s | Modi: %s", dev.name, dev.type_name,
                          ", ".join(f"{z.name}[{z.leds_count}]" for z in dev.zones),
                          ", ".join(m.name for m in dev.modes))

@@ -13,6 +13,7 @@ from PySide6.QtGui import QColor, QPainter
 from PySide6.QtWidgets import QDialog, QFrame, QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget
 
 from . import theme
+from ..i18n import tr
 
 STATE_COLORS = {"pending": "#2a2f3a", "busy": theme.ACCENT, "ok": theme.OK, "warn": theme.WARN, "error": theme.ERROR}
 ICONS = {"pending": "", "busy": "…", "ok": "✓", "warn": "!", "error": "✕"}
@@ -65,7 +66,7 @@ class StepRow(QWidget):
         col.setSpacing(1)
         self.title = QLabel(title)
         self.title.setObjectName("StepTitle")
-        self.text = QLabel("Wartet …")
+        self.text = QLabel(tr("Wartet …"))
         self.text.setObjectName("Muted")
         self.text.setWordWrap(True)
         self.text.setTextInteractionFlags(Qt.TextSelectableByMouse)
@@ -73,7 +74,7 @@ class StepRow(QWidget):
         col.addWidget(self.text)
         lay.addWidget(self.icon, 0, Qt.AlignTop)
         lay.addLayout(col, 1)
-        self.set("pending", "Wartet …")
+        self.set("pending", tr("Wartet …"))
 
     def set(self, state: str, text: str) -> None:
         self.state = state
@@ -98,7 +99,7 @@ class SetupView(QFrame):
         lay = QVBoxLayout(self)
         lay.setContentsMargins(24, 22, 24, 14)
         lay.setSpacing(6)
-        self.headline = QLabel("Wird eingerichtet …")
+        self.headline = QLabel(tr("Wird eingerichtet …"))
         self.headline.setObjectName("CardHeading")
         lay.addWidget(self.headline)
         lay.addSpacing(6)
@@ -119,13 +120,13 @@ class SetupView(QFrame):
     def refresh_headline(self) -> None:
         states = [r.state for r in self.rows]
         if any(s in ("pending", "busy") for s in states[:-1]):
-            self.headline.setText("Wird eingerichtet …")
+            self.headline.setText(tr("Wird eingerichtet …"))
         elif "error" in states:
-            self.headline.setText("Fertig, aber etwas braucht deine Aufmerksamkeit")
+            self.headline.setText(tr("Fertig, aber etwas braucht deine Aufmerksamkeit"))
         elif "warn" in states:
-            self.headline.setText("Bereit – mit Hinweisen")
+            self.headline.setText(tr("Bereit – mit Hinweisen"))
         else:
-            self.headline.setText("Alles bereit")
+            self.headline.setText(tr("Alles bereit"))
 
 
 class ClosingDialog(QDialog):
@@ -133,14 +134,14 @@ class ClosingDialog(QDialog):
 
     def __init__(self, steps: list, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Wird beendet …")
+        self.setWindowTitle(tr("Wird beendet …"))
         self.setModal(True)
         self.setWindowFlag(Qt.WindowCloseButtonHint, False)
         self.setMinimumWidth(460)
         lay = QVBoxLayout(self)
         lay.setContentsMargins(26, 22, 26, 22)
         lay.setSpacing(8)
-        head = QLabel("Alles wird sauber zurückgegeben …")
+        head = QLabel(tr("Alles wird sauber zurückgegeben …"))
         head.setObjectName("CardHeading")
         lay.addWidget(head)
         lay.addSpacing(6)
@@ -155,6 +156,6 @@ class ClosingDialog(QDialog):
     def set_step(self, index: int) -> None:
         for i, row in enumerate(self.rows):
             if i < index:
-                row.set("ok", "Erledigt")
+                row.set("ok", tr("Erledigt"))
             elif i == index:
-                row.set("busy", "Läuft …")
+                row.set("busy", tr("Läuft …"))

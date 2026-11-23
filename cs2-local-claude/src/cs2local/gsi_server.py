@@ -7,6 +7,8 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Callable
 
+from .i18n import tr
+
 log = logging.getLogger(__name__)
 
 
@@ -67,7 +69,7 @@ class GSIServer:
             threading.Thread(target=self._server.serve_forever, name="gsi", daemon=True).start()
             log.info("GSI-Server läuft auf Port %s", port)
             return port
-        raise OSError(f"Kein freier Port ab {preferred_port}: {last_error}")
+        raise OSError(tr("Kein freier Port ab {v0}: {v1}", v0=preferred_port, v1=last_error))
 
     def stop(self) -> None:
         if self._server:

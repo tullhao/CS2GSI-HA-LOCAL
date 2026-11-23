@@ -9,6 +9,7 @@ from PySide6.QtWidgets import QAbstractButton, QSizePolicy, QWidget
 
 from ..effects import render, render_segmented
 from . import theme
+from ..i18n import tr
 
 
 # ------------------------------------------------------------------------------------------- Schalter
@@ -54,7 +55,7 @@ class ColorSwatch(QAbstractButton):
     def set_color(self, rgb, team: bool = False) -> None:
         self._color = QColor(*rgb)
         self._team = team
-        self.setToolTip("Teamfarbe (CT/T)" if team else f"Farbe {self._color.name()} – klicken zum Ändern")
+        self.setToolTip(tr("Teamfarbe (CT/T)") if team else tr("Farbe {v0} – klicken zum Ändern", v0=self._color.name()))
         self.update()
 
     def paintEvent(self, _event):  # noqa: N802

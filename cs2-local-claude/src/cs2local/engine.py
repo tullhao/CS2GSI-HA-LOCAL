@@ -6,6 +6,7 @@ import threading
 import time
 
 from .effects import blend, render_segmented, scale
+from .i18n import tr
 
 log = logging.getLogger(__name__)
 
@@ -155,7 +156,7 @@ class LightEngine:
                     log.warning("Verbindung zur RGB-Engine unterbrochen (%s), Versuch %d", exc, failures)
                     if failures > 5:
                         raise
-                    self.status = {"top": "Verbinde neu …", "color": (0, 0, 0), "error": None}
+                    self.status = {"top": tr("Verbinde neu …"), "color": (0, 0, 0), "error": None}
                     time.sleep(min(5.0, 0.5 * failures))
                     self.rgb.reconnect()
                     prepared.clear()

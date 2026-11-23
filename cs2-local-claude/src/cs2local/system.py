@@ -7,6 +7,7 @@ import subprocess
 import sys
 
 from .config import PAWNIO_SETUP
+from .i18n import tr
 
 log = logging.getLogger(__name__)
 
@@ -53,16 +54,60 @@ def pawnio_setup_available() -> bool:
 def install_pawnio() -> tuple[bool, bool, str]:
     """Installiert den mitgelieferten PawnIO-Treiber still. Rückgabe: (ok, Neustart nötig, Meldung)."""
     if not pawnio_setup_available():
-        return False, False, "Das PawnIO-Setup fehlt in diesem Build."
+        return False, False, tr("Das PawnIO-Setup fehlt in diesem Build.")
     try:
         result = subprocess.run([str(PAWNIO_SETUP), "-install", "-silent"], timeout=180,
                                 creationflags=_NO_WINDOW, capture_output=True)
     except (OSError, subprocess.TimeoutExpired) as exc:
-        return False, False, f"Setup konnte nicht ausgeführt werden: {exc}"
+        return False, False, tr("Setup konnte nicht ausgeführt werden: {v0}", v0=exc)
     code = result.returncode
     log.info("PawnIO-Setup beendet mit Code %s", code)
     if code == 0:
-        return True, False, "PawnIO wurde installiert."
+        return True, False, tr("PawnIO wurde installiert.")
     if code == 3010:
-        return True, True, "PawnIO wurde installiert. Windows braucht einen Neustart, bis der Arbeitsspeicher erkannt wird."
-    return False, False, f"PawnIO-Setup meldet Fehlercode {code}."
+        return True, True, tr("PawnIO wurde installiert. Windows braucht einen Neustart, bis der Arbeitsspeicher erkannt wird.")
+    return False, False, tr("PawnIO-Setup meldet Fehlercode {v0}.", v0=code)
+
+
+# --- Autostart -------------------------------------------------------------------------------------------
+# Die EXE verlangt Adminrechte. Programme mit Adminrechten startet Windows aus dem normalen Autostart
+# (Registry "Run") stillschweigend nicht. Deshalb eine Aufgabe in der Aufgabenplanung: bei Anmeldung,
+# mit höchsten Rechten. Nur auf ausdrücklichen Wunsch, nie automatisch.
+AUTOSTART_TASK = "CS2 Local Claude"
+
+
+def _schtasks(*args: str) -> subprocess.CompletedProcess:
+    return subprocess.run(["schtasks", *args], capture_output=True, text=True, timeout=20,
+                          creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+
+
+def autostart_supported() -> bool:
+    return os.name == "nt" and bool(getattr(sys, "frozen", False))
+
+
+def autostart_enabled() -> bool:
+    if os.name != "nt":
+        return False
+    try:
+        return _schtasks("/Query", "/TN", AUTOSTART_TASK).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def set_autostart(enabled: bool) -> tuple[bool, str]:
+    """Schaltet den Autostart ein oder aus. Rückgabe: (ok, Fehlermeldung)."""
+    if not autostart_supported():
+        return False, tr("Autostart gibt es nur für die fertige EXE unter Windows.")
+    try:
+        if enabled:
+            cmd = f'"{sys.executable}" --autostart'
+            r = _schtasks("/Create", "/TN", AUTOSTART_TASK, "/TR", cmd, "/SC", "ONLOGON", "/RL", "HIGHEST", "/F")
+        else:
+            r = _schtasks("/Delete", "/TN", AUTOSTART_TASK, "/F")
+    except (OSError, subprocess.SubprocessError) as exc:
+        return False, str(exc)
+    if r.returncode != 0:
+        log.warning("Autostart %s fehlgeschlagen: %s", "an" if enabled else "aus", (r.stderr or r.stdout).strip())
+        return False, (r.stderr or r.stdout).strip()
+    log.info("Autostart %s (%s)", "eingeschaltet" if enabled else "ausgeschaltet", sys.executable)
+    return True, ""

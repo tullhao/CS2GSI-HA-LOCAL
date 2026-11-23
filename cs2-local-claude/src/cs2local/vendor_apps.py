@@ -12,6 +12,7 @@ import json
 import logging
 import os
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -213,6 +214,23 @@ def has_pending() -> bool:
     return bool(pending["services"] or pending["processes"])
 
 
+def _clean_launch_env() -> dict:
+    """Umgebung ohne Spuren der EXE: sonst laden neu gestartete Programme (z. B. iCUE) Bibliotheken aus dem
+    Temp-Ordner der EXE und Windows kann ihn beim Beenden nicht löschen („Failed to remove temporary directory“)."""
+    meipass = getattr(sys, "_MEIPASS", "") or ""
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("_MEI", "_PYI", "PYINSTALLER"))}
+    if meipass:
+        env["PATH"] = os.pathsep.join(p for p in env.get("PATH", "").split(os.pathsep)
+                                      if p and not p.lower().startswith(meipass.lower()))
+    if os.name == "nt":
+        try:
+            import ctypes
+            ctypes.windll.kernel32.SetDllDirectoryW(None)  # wird sonst an Kindprozesse vererbt
+        except Exception:  # noqa: BLE001
+            pass
+    return env
+
+
 def resume() -> list:
     """Startet alles wieder, was das Tool pausiert hat. Gibt Fehler zurück."""
     pending = load_pending()
@@ -223,6 +241,7 @@ def resume() -> list:
             errors.append(f"Dienst {name}: {out.strip()[:80]}")
     if pending["services"]:
         time.sleep(3.0)  # Dienste starten ihre Programme oft selbst
+    env = _clean_launch_env()
     running_now = {(p or "").lower() for p in _running_paths()}
     started_apps = set()
     for proc in pending["processes"]:
@@ -232,12 +251,13 @@ def resume() -> list:
             if proc.get("aumid"):  # Microsoft-Store-App: über ihre App-ID starten
                 if proc["aumid"] in started_apps:
                     continue
-                subprocess.Popen(["explorer.exe", f"shell:AppsFolder\\{proc['aumid']}"], creationflags=_DETACHED)
+                subprocess.Popen(["explorer.exe", f"shell:AppsFolder\\{proc['aumid']}"], creationflags=_DETACHED,
+                                 env=env, cwd=os.environ.get("SystemRoot", "C:\\Windows"))
                 started_apps.add(proc["aumid"])
             else:
                 subprocess.Popen(proc["cmd"], cwd=str(Path(proc["path"]).parent), creationflags=_DETACHED,
                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL,
-                                 close_fds=True)
+                                 close_fds=True, env=env)
         except OSError as exc:
             errors.append(f"{Path(proc['path']).name}: {exc}")
     try:

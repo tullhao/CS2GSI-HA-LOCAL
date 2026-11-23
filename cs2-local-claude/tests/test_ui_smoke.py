@@ -185,6 +185,26 @@ win.go(3)
 win._tick()  # noqa: SLF001
 shot("4_live")
 
+# Sprachauswahl beim ersten Start und ⚙ Einstellungen (Englisch und Portugiesisch)
+from cs2local.i18n import set_language  # noqa: E402
+from cs2local.ui.settings_dialog import LanguageDialog, SettingsDialog  # noqa: E402
+
+for name, dlg in [("6_sprache", LanguageDialog("en")), ("7_einstellungen", SettingsDialog(settings, win))]:
+    dlg.show()
+    for _ in range(5):
+        app.processEvents()
+    dlg.grab().save(str(SHOTS / f"{name}.png"))
+    dlg.close()
+assert not SettingsDialog(settings, win).autostart.isChecked(), "Autostart darf nie von selbst an sein"
+set_language("pt")
+dlg = SettingsDialog(settings, win)
+dlg.show()
+for _ in range(5):
+    app.processEvents()
+dlg.grab().save(str(SHOTS / "7_einstellungen_pt.png"))
+dlg.close()
+set_language("en")
+
 # Beenden: Fenster bleibt bedienbar, Schritte werden angezeigt, danach schliesst es sich
 import time  # noqa: E402
 

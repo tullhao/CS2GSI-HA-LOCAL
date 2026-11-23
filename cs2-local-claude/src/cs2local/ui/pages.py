@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
 from .. import config
 from ..engine import state_color
 from .widgets import ColorSwatch, DeviceIcon, FanRings, LedPreview, ToggleSwitch, ZoneChip, state_preview_source
+from ..i18n import tr
 
 
 # ------------------------------------------------------------------------------------------- Hilfen
@@ -157,14 +158,14 @@ class DeviceCard(QFrame):
         col.setSpacing(2)
         title = _label(device, "CardHeading")
         vendor = zones[0].get("vendor") or ""
-        sub = zones[0]["type"] + (f"  ·  {vendor}" if vendor and vendor.lower() not in device.lower() else "")
+        sub = tr(zones[0]["type"]) + (f"  ·  {vendor}" if vendor and vendor.lower() not in device.lower() else "")
         if settings.get("device_methods", {}).get(device) == "static":
-            sub += "  ·  einfarbige Steuerung"
+            sub += tr("  ·  einfarbige Steuerung")
         col.addWidget(title)
         col.addWidget(_label(sub, "Muted"))
         head.addLayout(col, 1)
         self.master = ToggleSwitch()
-        self.master.setToolTip("Alle Zonen dieses Geräts verwenden")
+        self.master.setToolTip(tr("Alle Zonen dieses Geräts verwenden"))
         self.master.clicked.connect(self._toggle_all)
         head.addWidget(self.master, 0, Qt.AlignTop)
         lay.addLayout(head)
@@ -175,7 +176,7 @@ class DeviceCard(QFrame):
             chip = ZoneChip(z["key"], z["zone"], z["leds"])
             chip.setChecked(z["key"] in selected)
             chip.setEnabled(z["leds"] > 0)
-            chip.setToolTip("Noch nicht eingerichtet. Unten auf „Einrichten“ klicken." if z["leds"] == 0 else "")
+            chip.setToolTip(tr("Noch nicht eingerichtet. Unten auf „Einrichten“ klicken.") if z["leds"] == 0 else "")
             chip.toggled_key.connect(self._chip_toggled)
             flow.addWidget(chip)
             self.chips[z["key"]] = chip
@@ -195,24 +196,24 @@ class DeviceCard(QFrame):
             col.setSpacing(2)
             col.addWidget(_label(z["zone"], "CardHeading"))
             if layout and layout.get("kind") == "none":
-                text = "⦸  Nichts angeschlossen"
+                text = tr("⦸  Nichts angeschlossen")
             elif layout:
-                text = f"{layout['count']} × {layout['name']}  ·  {z['leds']} LEDs"
+                text = f"{layout['count']} × {tr(layout['name'])}  ·  {z['leds']} LEDs"
             elif z["leds"]:
-                text = f"{z['leds']} LEDs, Hardware nicht angegeben"
+                text = tr("{v0} LEDs, Hardware nicht angegeben", v0=z['leds'])
             else:
-                text = "Nicht eingerichtet: Was hängt an diesem Anschluss?"
+                text = tr("Nicht eingerichtet: Was hängt an diesem Anschluss?")
             col.addWidget(_label(text, "Muted", wrap=True))
             row.addLayout(col, 1)
             if not (layout and layout.get("kind") == "none"):
                 empty = QPushButton("⦸")
                 empty.setObjectName("Icon")
-                empty.setToolTip("Nichts angeschlossen")
+                empty.setToolTip(tr("Nichts angeschlossen"))
                 empty.clicked.connect(lambda _=False, k=z["key"]: self.empty_requested.emit(k))
                 row.addWidget(empty, 0, Qt.AlignTop)
-            setup = QPushButton("✎" if layout else "⚙  Einrichten")
+            setup = QPushButton("✎" if layout else tr("⚙  Einrichten"))
             setup.setObjectName("Icon" if layout else "Primary")
-            setup.setToolTip("Ändern" if layout else "Was hängt an diesem Anschluss?")
+            setup.setToolTip(tr("Ändern") if layout else tr("Was hängt an diesem Anschluss?"))
             setup.clicked.connect(lambda _=False, k=z["key"], n=z["zone"], hi=z["leds_max"]:
                                   self.setup_requested.emit(k, n, hi))
             row.addWidget(setup, 0, Qt.AlignTop)
@@ -220,12 +221,12 @@ class DeviceCard(QFrame):
             if layout and layout.get("count", 0) > 0:
                 rings = FanRings(layout["count"], layout["per"], layout.get("kind", "fan"),
                                  settings.get("fans_off", {}).get(z["key"], []))
-                rings.setToolTip("Klick auf einen Lüfter schaltet ihn für CS2 an oder aus")
+                rings.setToolTip(tr("Klick auf einen Lüfter schaltet ihn für CS2 an oder aus"))
                 rings.changed.connect(lambda off, k=z["key"]: self.fans_changed.emit(k, off))
                 if frame_fn:
                     rings.set_source(lambda n, k=z["key"]: frame_fn(k, n))
                 bl.addWidget(rings)
-                bl.addWidget(_label("Klick auf einen Lüfter, um ihn ein- oder auszuschalten.", "Muted"))
+                bl.addWidget(_label(tr("Klick auf einen Lüfter, um ihn ein- oder auszuschalten."), "Muted"))
                 self.rings[z["key"]] = rings
             lay.addWidget(box)
 
@@ -233,9 +234,9 @@ class DeviceCard(QFrame):
         foot = QHBoxLayout()
         self.summary = _label("", "Muted")
         foot.addWidget(self.summary, 1)
-        test = QPushButton("◉  Testen")
+        test = QPushButton(tr("◉  Testen"))
         test.setObjectName("Small")
-        test.setToolTip("Lässt die gewählten Zonen dieses Geräts türkis blinken")
+        test.setToolTip(tr("Lässt die gewählten Zonen dieses Geräts türkis blinken"))
         test.clicked.connect(self._test)
         foot.addWidget(test)
         lay.addLayout(foot)
@@ -268,8 +269,8 @@ class DeviceCard(QFrame):
         self.icon.set_active(bool(chosen))
         self.master.setChecked(bool(usable) and len(chosen) == len(usable))
         leds = sum(c.leds for c in chosen)
-        self.summary.setText(f"{len(chosen)} von {len(self.chips)} Zonen aktiv · {leds} LEDs" if chosen
-                             else "Nicht verwendet")
+        self.summary.setText(tr("{v0} von {v1} Zonen aktiv · {v2} LEDs", v0=len(chosen), v1=len(self.chips), v2=leds) if chosen
+                             else tr("Nicht verwendet"))
 
 
 class DevicesPage(QWidget):
@@ -289,16 +290,15 @@ class DevicesPage(QWidget):
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(14)
         bar = QHBoxLayout()
-        self.summary = _label("Warte auf die RGB-Engine …", "Muted")
+        self.summary = _label(tr("Warte auf die RGB-Engine …"), "Muted")
         bar.addWidget(self.summary, 1)
-        check = QPushButton("✓  Geräte-Check")
+        check = QPushButton(tr("✓  Geräte-Check"))
         check.setObjectName("Primary")
-        check.setToolTip("Jedes Gerät und jeder Anschluss blinkt nacheinander, du bestätigst per Klick. "
-                         "Was nicht reagiert, wird ausgeschaltet.")
+        check.setToolTip(tr("Jedes Gerät und jeder Anschluss blinkt nacheinander, du bestätigst per Klick. Was nicht reagiert, wird ausgeschaltet."))
         check.clicked.connect(self.check_requested.emit)
         bar.addWidget(check)
-        for text, slot in (("☑  Alle", lambda: self._set_all(True)), ("☐  Keine", lambda: self._set_all(False)),
-                           ("⟳  Neu suchen", self.rescan_requested.emit)):
+        for text, slot in ((tr("☑  Alle"), lambda: self._set_all(True)), (tr("☐  Keine"), lambda: self._set_all(False)),
+                           (tr("⟳  Neu suchen"), self.rescan_requested.emit)):
             btn = QPushButton(text)
             btn.setObjectName("Small")
             btn.clicked.connect(slot)
@@ -306,8 +306,7 @@ class DevicesPage(QWidget):
         lay.addLayout(bar)
         self.grid = ResponsiveGrid(min_column=430)
         lay.addWidget(self.grid)
-        self.empty = _label("Noch keine Geräte. Die RGB-Engine sucht gerade, oder es wurde nichts gefunden "
-                            "(Adminrechte? Andere RGB-Software offen?).", "Muted", wrap=True)
+        self.empty = _label(tr("Noch keine Geräte. Die RGB-Engine sucht gerade, oder es wurde nichts gefunden (Adminrechte? Andere RGB-Software offen?)."), "Muted", wrap=True)
         lay.addWidget(self.empty)
         lay.addStretch(1)
 
@@ -351,8 +350,8 @@ class DevicesPage(QWidget):
 
     def _update_summary(self) -> None:
         n = len(self.settings["devices"])
-        self.summary.setText(f"{len(self.cards)} Geräte gefunden · {n} Zone{'n' if n != 1 else ''} ausgewählt"
-                             if self.cards else "Keine Geräte")
+        self.summary.setText((tr("{v0} Geräte gefunden · {v1} Zonen ausgewählt", v0=len(self.cards), v1=n) if n != 1 else tr("{v0} Geräte gefunden · 1 Zone ausgewählt", v0=len(self.cards)))
+                             if self.cards else tr("Keine Geräte"))
 
 
 # ------------------------------------------------------------------------------------------- Effekte
@@ -380,15 +379,15 @@ class StateCard(QFrame):
         self.toggle.clicked.connect(lambda: self._set("enabled", self.toggle.isChecked()))
         head.addWidget(self.toggle)
         head.addSpacing(6)
-        head.addWidget(_label(cfg["name"], "CardHeading"))
-        tag = _label("kurz" if cfg["kind"] == "event" else "solange aktiv", "Tag")
-        tag.setToolTip("Kurzes Ereignis mit fester Dauer" if cfg["kind"] == "event"
-                       else "Leuchtet, solange die Situation andauert")
+        head.addWidget(_label(tr(cfg["name"]), "CardHeading"))
+        tag = _label(tr("kurz") if cfg["kind"] == "event" else tr("solange aktiv"), "Tag")
+        tag.setToolTip(tr("Kurzes Ereignis mit fester Dauer") if cfg["kind"] == "event"
+                       else tr("Leuchtet, solange die Situation andauert"))
         head.addWidget(tag)
         head.addStretch(1)
         lay.addLayout(head)
 
-        lay.addWidget(_label(cfg["desc"], "Muted", wrap=True))
+        lay.addWidget(_label(tr(cfg["desc"]), "Muted", wrap=True))
         self.preview = LedPreview()
         self.preview.set_source(state_preview_source(cfg, self.current_color))
         lay.addWidget(self.preview)
@@ -402,21 +401,21 @@ class StateCard(QFrame):
         self.team.clicked.connect(lambda: self._set("team_color", self.team.isChecked()))
         if sid not in ("team_ct", "team_t"):
             row.addWidget(self.team)
-            row.addWidget(_label("Teamfarbe", "Muted"))
+            row.addWidget(_label(tr("Teamfarbe"), "Muted"))
         row.addSpacing(8)
         self.effect = QComboBox()
         for key, label in config.EFFECTS.items():
-            self.effect.addItem(label, key)
+            self.effect.addItem(tr(label), key)
         self.effect.setCurrentIndex(max(0, self.effect.findData(cfg["effect"])))
         self.effect.currentIndexChanged.connect(lambda _i: self._set("effect", self.effect.currentData()))
         row.addWidget(self.effect)
         row.addStretch(1)
-        show = QPushButton("▶  Zeigen")
+        show = QPushButton(tr("▶  Zeigen"))
         show.setObjectName("Small")
-        show.setToolTip("Spielt den Effekt 3 Sekunden auf deinen Geräten ab")
+        show.setToolTip(tr("Spielt den Effekt 3 Sekunden auf deinen Geräten ab"))
         show.clicked.connect(lambda: self.device_preview.emit(self.sid))
         row.addWidget(show)
-        self.more = QPushButton("⋯  Mehr")
+        self.more = QPushButton(tr("⋯  Mehr"))
         self.more.setObjectName("Link")
         self.more.setCheckable(True)
         self.more.toggled.connect(self._toggle_details)
@@ -429,21 +428,21 @@ class StateCard(QFrame):
         grid.setContentsMargins(14, 12, 14, 12)
         grid.setHorizontalSpacing(14)
         grid.setVerticalSpacing(10)
-        self.speed = self._slider(grid, 0, "Tempo", 1, 150, int(round(cfg["speed"] * 10)),
-                                  lambda v: f"{v / 10:.1f} pro Sekunde", lambda v: self._set("speed", v / 10))
-        self.duration = self._slider(grid, 1, "Dauer", 1, 150, int(round((cfg["duration"] or 1) * 10)),
-                                     lambda v: f"{v / 10:.1f} Sekunden", lambda v: self._set("duration", v / 10))
-        self.intensity = self._slider(grid, 2, "Helligkeit", 0, 100, int(cfg.get("intensity", 100)),
+        self.speed = self._slider(grid, 0, tr("Tempo"), 1, 150, int(round(cfg["speed"] * 10)),
+                                  lambda v: tr("{v0} pro Sekunde", v0=f"{v / 10:.1f}"), lambda v: self._set("speed", v / 10))
+        self.duration = self._slider(grid, 1, tr("Dauer"), 1, 150, int(round((cfg["duration"] or 1) * 10)),
+                                     lambda v: tr("{v0} Sekunden", v0=f"{v / 10:.1f}"), lambda v: self._set("duration", v / 10))
+        self.intensity = self._slider(grid, 2, tr("Helligkeit"), 0, 100, int(cfg.get("intensity", 100)),
                                       lambda v: f"{v} %", lambda v: self._set("intensity", v))
-        grid.addWidget(_label("Vorrang"), 3, 0)
+        grid.addWidget(_label(tr("Vorrang")), 3, 0)
         self.prio = QSpinBox()
         self.prio.setRange(0, 200)
         self.prio.setValue(int(cfg["priority"]))
         self.prio.setFixedWidth(90)
-        self.prio.setToolTip("Sind mehrere Situationen gleichzeitig aktiv, gewinnt der höhere Wert.")
+        self.prio.setToolTip(tr("Sind mehrere Situationen gleichzeitig aktiv, gewinnt der höhere Wert."))
         self.prio.valueChanged.connect(lambda v: self._set("priority", v))
         grid.addWidget(self.prio, 3, 1)
-        grid.addWidget(_label("Höherer Wert gewinnt, wenn mehreres gleichzeitig passiert.", "Muted"), 3, 2)
+        grid.addWidget(_label(tr("Höherer Wert gewinnt, wenn mehreres gleichzeitig passiert."), "Muted"), 3, 2)
         grid.setColumnStretch(1, 1)
         self.details.hide()
         lay.addWidget(self.details)
@@ -484,13 +483,13 @@ class StateCard(QFrame):
 
     def _toggle_details(self, on: bool) -> None:
         self.details.setVisible(on)
-        self.more.setText("⋯  Weniger" if on else "⋯  Mehr")
+        self.more.setText(tr("⋯  Weniger") if on else tr("⋯  Mehr"))
 
     def _pick_color(self) -> None:
         if self.cfg.get("team_color"):
             return
         r, g, b = self.cfg["color"]
-        chosen = QColorDialog.getColor(QColor(r, g, b), self, f"Farbe für „{self.cfg['name']}“")
+        chosen = QColorDialog.getColor(QColor(r, g, b), self, tr("Farbe für „{v0}“", v0=tr(self.cfg['name'])))
         if chosen.isValid():
             self._set("color", [chosen.red(), chosen.green(), chosen.blue()])
 
@@ -544,10 +543,10 @@ class EffectsPage(QWidget):
         lay.setSpacing(14)
 
         top = QHBoxLayout()
-        cats, self.cat_group = _segmented([c[0] for c in config.CATEGORIES], self)
+        cats, self.cat_group = _segmented([tr(c[0]) for c in config.CATEGORIES], self)
         top.addLayout(cats)
         top.addStretch(1)
-        top.addWidget(_label("Vorschau als", "Muted"))
+        top.addWidget(_label(tr("Vorschau als"), "Muted"))
         teams, self.team_group = _segmented(["CT", "T"], self)
         self.team_group.idClicked.connect(self._set_team)
         top.addLayout(teams)
@@ -564,7 +563,7 @@ class EffectsPage(QWidget):
         g = QHBoxLayout(general)
         g.setContentsMargins(18, 12, 18, 12)
         g.setSpacing(14)
-        g.addWidget(_label("Gesamthelligkeit"))
+        g.addWidget(_label(tr("Gesamthelligkeit")))
         self.bright = QSlider(Qt.Horizontal)
         self.bright.setRange(5, 100)
         self.bright.setValue(int(settings["options"]["brightness"]))
@@ -573,16 +572,16 @@ class EffectsPage(QWidget):
         g.addWidget(self.bright, 1)
         g.addWidget(self.bright_text)
         g.addSpacing(20)
-        g.addWidget(_label("Bildrate"))
+        g.addWidget(_label(tr("Bildrate")))
         fps = QSpinBox()
         fps.setRange(5, 60)
-        fps.setSuffix(" pro Sekunde")
+        fps.setSuffix(tr(" pro Sekunde"))
         fps.setValue(int(settings["options"]["fps"]))
-        fps.setToolTip("Wie oft pro Sekunde die LEDs aktualisiert werden. Arbeitsspeicher mag eher 15–20.")
+        fps.setToolTip(tr("Wie oft pro Sekunde die LEDs aktualisiert werden. Arbeitsspeicher mag eher 15–20."))
         fps.valueChanged.connect(lambda v: self._opt("fps", v))
         g.addWidget(fps)
         g.addSpacing(20)
-        reset = QPushButton("↺  Standard")
+        reset = QPushButton(tr("↺  Standard"))
         reset.setObjectName("Small")
         reset.clicked.connect(self._reset)
         g.addWidget(reset)
@@ -602,12 +601,12 @@ class EffectsPage(QWidget):
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(12)
         head = QHBoxLayout()
-        head.addWidget(_label(text, "PageSub", wrap=True), 1)
+        head.addWidget(_label(tr(text), "PageSub", wrap=True), 1)
         for key, label, suffix, lo, hi in options:
-            head.addWidget(_label(label))
+            head.addWidget(_label(tr(label)))
             spin = QSpinBox()
             spin.setRange(lo, hi)
-            spin.setSuffix(suffix)
+            spin.setSuffix(tr(suffix))
             spin.setValue(int(self.settings["options"][key]))
             spin.valueChanged.connect(lambda v, k=key: self._opt(k, v))
             head.addWidget(spin)
@@ -640,7 +639,7 @@ class EffectsPage(QWidget):
 
     def _reset(self) -> None:
         from PySide6.QtWidgets import QMessageBox
-        if QMessageBox.question(self, config.APP_NAME, "Alle Effekte auf die Standardwerte zurücksetzen?") \
+        if QMessageBox.question(self, config.APP_NAME, tr("Alle Effekte auf die Standardwerte zurücksetzen?")) \
                 != QMessageBox.Yes:
             return
         self.settings["states"].clear()
@@ -656,41 +655,39 @@ class ZoneSetupDialog(QDialog):
 
     def __init__(self, zone: str, layout: dict | None, leds_max: int, parent=None):
         super().__init__(parent)
-        self.setWindowTitle(f"{zone} einrichten")
+        self.setWindowTitle(tr("{v0} einrichten", v0=zone))
         self.setMinimumWidth(460)
         self.leds_max = leds_max or 1000
         lay = QVBoxLayout(self)
         lay.setContentsMargins(22, 20, 22, 18)
         lay.setSpacing(14)
-        lay.addWidget(_label(f"Was hängt an „{zone}“?", "CardHeading"))
-        lay.addWidget(_label("Die Hardware meldet das nicht selbst (auch iCUE fragt danach). Wähl das Modell und "
-                             "die Anzahl, die LEDs rechnet das Tool aus. Bei mehreren Lüftern an einem Hub: "
-                             "alle zusammen zählen.", "Muted", wrap=True))
+        lay.addWidget(_label(tr("Was hängt an „{v0}“?", v0=zone), "CardHeading"))
+        lay.addWidget(_label(tr("Die Hardware meldet das nicht selbst (auch iCUE fragt danach). Wähl das Modell und die Anzahl, die LEDs rechnet das Tool aus. Bei mehreren Lüftern an einem Hub: alle zusammen zählen."), "Muted", wrap=True))
         grid = QGridLayout()
         grid.setHorizontalSpacing(12)
         grid.setVerticalSpacing(10)
         self.model = QComboBox()
         for name, per, kind in config.HARDWARE_PRESETS:
-            self.model.addItem(f"{name}  ({per} LEDs)" if name != "Eigene Angabe" else name, (name, per, kind))
+            self.model.addItem(f"{tr(name)}  ({per} LEDs)" if name != "Eigene Angabe" else tr(name), (name, per, kind))
         self.count = QSpinBox()
         self.count.setRange(0, 12)
         self.per = QSpinBox()
         self.per.setRange(1, 300)
-        self.per.setSuffix(" LEDs pro Stück")
+        self.per.setSuffix(tr(" LEDs pro Stück"))
         self.total = _label("", "CardHeading")
-        grid.addWidget(_label("Modell"), 0, 0)
+        grid.addWidget(_label(tr("Modell")), 0, 0)
         grid.addWidget(self.model, 0, 1)
-        grid.addWidget(_label("Anzahl"), 1, 0)
+        grid.addWidget(_label(tr("Anzahl")), 1, 0)
         grid.addWidget(self.count, 1, 1)
         grid.addWidget(_label("LEDs"), 2, 0)
         grid.addWidget(self.per, 2, 1)
-        grid.addWidget(_label("Zusammen"), 3, 0)
+        grid.addWidget(_label(tr("Zusammen")), 3, 0)
         grid.addWidget(self.total, 3, 1)
         lay.addLayout(grid)
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        buttons.button(QDialogButtonBox.Ok).setText("Übernehmen")
+        buttons.button(QDialogButtonBox.Ok).setText(tr("Übernehmen"))
         buttons.button(QDialogButtonBox.Ok).setObjectName("Primary")
-        buttons.button(QDialogButtonBox.Cancel).setText("Abbrechen")
+        buttons.button(QDialogButtonBox.Cancel).setText(tr("Abbrechen"))
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         lay.addWidget(buttons)
@@ -716,7 +713,7 @@ class ZoneSetupDialog(QDialog):
     def _update(self, *_):
         total = self.count.value() * self.per.value()
         ok = total <= self.leds_max
-        self.total.setText(f"{total} LEDs" + ("" if ok else f"  (max. {self.leds_max})"))
+        self.total.setText(f"{total} LEDs" + ("" if ok else tr("  (max. {v0})", v0=self.leds_max)))
         self.total.setStyleSheet("" if ok else "color: #ff5c5c;")
 
     def result_layout(self) -> dict:

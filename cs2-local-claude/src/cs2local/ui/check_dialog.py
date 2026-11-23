@@ -13,6 +13,7 @@ from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QProgressBar, QPushButton, QVBoxLayout
 
 from .widgets import DeviceIcon
+from ..i18n import tr
 
 log = logging.getLogger(__name__)
 
@@ -32,7 +33,7 @@ def build_targets(zones: list) -> list:
                             "keys": [z["key"] for z in fixed], "resizable": None})
         for z in dz:
             if z["resizable"]:
-                targets.append({"device": device, "label": f"{device} · Anschluss {z['zone']}",
+                targets.append({"device": device, "label": tr("{v0} · Anschluss {v1}", v0=device, v1=z['zone']),
                                 "type_id": z["type_id"], "keys": [z["key"]], "resizable": z})
     return targets
 
@@ -54,7 +55,7 @@ class DeviceCheckDialog(QDialog):
         self.temp_sizes: dict = {}
         self.decided: dict = {}  # Gerät -> Methode, die im Check funktioniert hat
 
-        self.setWindowTitle("Geräte-Check")
+        self.setWindowTitle(tr("Geräte-Check"))
         self.setMinimumWidth(600)
         lay = QVBoxLayout(self)
         lay.setContentsMargins(26, 22, 26, 20)
@@ -86,18 +87,18 @@ class DeviceCheckDialog(QDialog):
         self.hint.setWordWrap(True)
         lay.addWidget(self.hint)
         row = QHBoxLayout()
-        self.btn_skip = QPushButton("⤼  Überspringen")
+        self.btn_skip = QPushButton(tr("⤼  Überspringen"))
         self.btn_skip.setObjectName("Small")
         self.btn_skip.clicked.connect(lambda: self._answer(None))
         row.addWidget(self.btn_skip)
         row.addStretch(1)
-        self.btn_empty = QPushButton("⦸  Nichts angeschlossen")
-        self.btn_empty.setToolTip("Hier hängt nichts bzw. ist nichts zu sehen. Wird ausgeschaltet, ohne zweiten Versuch.")
+        self.btn_empty = QPushButton(tr("⦸  Nichts angeschlossen"))
+        self.btn_empty.setToolTip(tr("Hier hängt nichts bzw. ist nichts zu sehen. Wird ausgeschaltet, ohne zweiten Versuch."))
         self.btn_empty.clicked.connect(lambda: self._answer("empty"))
         row.addWidget(self.btn_empty)
-        self.btn_no = QPushButton("✕  Nein")
+        self.btn_no = QPushButton(tr("✕  Nein"))
         self.btn_no.clicked.connect(lambda: self._answer(False))
-        self.btn_yes = QPushButton("✓  Ja, es blinkt")
+        self.btn_yes = QPushButton(tr("✓  Ja, es blinkt"))
         self.btn_yes.setObjectName("Primary")
         self.btn_yes.clicked.connect(lambda: self._answer(True))
         row.addWidget(self.btn_no)
@@ -124,22 +125,20 @@ class DeviceCheckDialog(QDialog):
             return
         self.btn_empty.setVisible(True)
         self.progress.setValue(self.index)
-        self.step.setText(f"Schritt {self.index + 1} von {len(self.targets)}")
+        self.step.setText(tr("Schritt {v0} von {v1}", v0=self.index + 1, v1=len(self.targets)))
         self.icon.type_id = t["type_id"]
         self.icon.set_active(True)
         self.title.setText(t["label"])
         if self.second_try:
-            self.question.setText("Zweiter Versuch mit einer anderen Methode: Blinkt es jetzt türkis?")
-            self.hint.setText("Manche Geräte (z. B. neue Gigabyte-Boards) reagieren nur so. Dann leuchten sie "
-                              "einfarbig, aber Effekte und Farben funktionieren.")
+            self.question.setText(tr("Zweiter Versuch mit einer anderen Methode: Blinkt es jetzt türkis?"))
+            self.hint.setText(tr("Manche Geräte (z. B. neue Gigabyte-Boards) reagieren nur so. Dann leuchten sie einfarbig, aber Effekte und Farben funktionieren."))
         else:
-            self.question.setText("Blinkt dieses Gerät jetzt türkis?")
+            self.question.setText(tr("Blinkt dieses Gerät jetzt türkis?"))
             z = t["resizable"]
             if z and not self.settings.get("zone_layout", {}).get(z["key"]):
-                self.hint.setText("Das ist ein Anschluss für Lüfter, LED-Streifen oder z. B. die Grafikkarte. "
-                                  "Wenn dort nichts hängt, klick „Nein“.")
+                self.hint.setText(tr("Das ist ein Anschluss für Lüfter, LED-Streifen oder z. B. die Grafikkarte. Wenn dort nichts hängt, klick „Nein“."))
             else:
-                self.hint.setText("Schau auf das Gerät. Das Blinken läuft, bis du antwortest.")
+                self.hint.setText(tr("Schau auf das Gerät. Das Blinken läuft, bis du antwortest."))
         if self.second_try:
             self.methods[dkey] = "static"
         else:  # bewährte Methode dieses Geräts weiterverwenden, sonst zuerst Direktsteuerung
@@ -223,7 +222,7 @@ class DeviceCheckDialog(QDialog):
             if key in self.confirmed and not self.settings.get("zone_layout", {}).get(key):
                 self.settings.setdefault("zone_sizes", {})[key] = size
                 self.settings.setdefault("zone_layout", {})[key] = {
-                    "name": "Unbekannt (Test mit 60 LEDs)", "kind": "strip", "count": 1, "per": size, "total": size}
+                    "name": tr("Unbekannt (Test mit 60 LEDs)"), "kind": "strip", "count": 1, "per": size, "total": size}
         self.settings["device_check_done"] = True
         log.info("Geräte-Check: %d Zonen bestätigt, %d abgelehnt, ohne Reaktion: %s, Methoden %s",
                  len(self.confirmed), len(self.rejected), self.failed_devices, self.methods)
@@ -239,5 +238,4 @@ class DeviceCheckDialog(QDialog):
         super().reject()
 
     def summary(self) -> str:
-        return (f"{len(self.confirmed)} Zonen funktionieren und sind eingeschaltet, "
-                f"{len(self.rejected)} ohne Reaktion wurden ausgeschaltet.")
+        return (tr("{v0} Zonen funktionieren und sind eingeschaltet, {v1} ohne Reaktion wurden ausgeschaltet.", v0=len(self.confirmed), v1=len(self.rejected)))

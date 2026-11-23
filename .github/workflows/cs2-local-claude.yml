@@ -45,6 +45,9 @@ jobs:
       - name: Tests der Kernlogik
         run: python tests/test_core.py
 
+      - name: Übersetzungen vollständig
+        run: python tests/test_i18n.py
+
       - name: Test des SDK-Clients
         run: python tests/test_sdk_fake.py
 
