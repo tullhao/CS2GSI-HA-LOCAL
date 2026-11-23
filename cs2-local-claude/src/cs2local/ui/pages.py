@@ -133,7 +133,7 @@ class DeviceCard(QFrame):
         for z in zones:
             chip = ZoneChip(z["key"], z["zone"], z["leds"])
             chip.setChecked(z["key"] in selected)
-            chip.setEnabled(z["leds"] > 0 or z["resizable"])
+            chip.setEnabled(z["leds"] > 0)
             chip.setToolTip("Zone ohne LEDs. Trag unten die Anzahl LEDs ein." if z["leds"] == 0 else "")
             chip.toggled_key.connect(self._chip_toggled)
             flow.addWidget(chip)
