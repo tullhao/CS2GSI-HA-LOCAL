@@ -152,7 +152,7 @@ class RGBEngine:
                 self._launch(progress)
             self._connect(time.monotonic() + 60)
             progress(tr("Suche RGB-Geräte (das dauert ein paar Sekunden) …"))
-            self._wait_for_devices()
+            self._wait_for_devices(progress=progress)
             for key, size in (zone_sizes or {}).items():
                 try:
                     if key in self._zones and self.led_count(key) != size:
@@ -167,20 +167,42 @@ class RGBEngine:
                          ", ".join(f"{z.name}[{z.leds_count}]" for z in dev.zones),
                          ", ".join(m.name for m in dev.modes))
 
-    def _wait_for_devices(self, timeout: float = 30.0) -> None:
-        """Wartet, bis die Geräteerkennung fertig ist (Anzahl Geräte bleibt stabil)."""
-        deadline = time.monotonic() + timeout
-        prev, stable = -1, 0
+    def _detection_finished(self) -> bool:
+        """OpenRGB schreibt „Detection completed“ ins Engine-Log, wenn die Suche ganz fertig ist."""
+        if not self._log_handle:
+            return False
+        try:
+            self._log_handle.flush()
+            return "Detection completed" in ENGINE_LOG.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return False
+
+    def _wait_for_devices(self, timeout: float = 60.0, progress=lambda msg: None) -> None:
+        """Wartet, bis die Geräteerkennung fertig ist.
+
+        Mit PawnIO prüft OpenRGB zuerst den Arbeitsspeicher, USB-Geräte (Mainboard, Lüftersteuerung, Tastatur)
+        kommen erst nach 10 Sekunden oder mehr. Darum zählt die Meldung „Detection completed“ aus dem Engine-Log;
+        ohne Log (fremde OpenRGB-Instanz) muss die Anzahl 12 Sekunden lang gleich bleiben, mit Log notfalls 25.
+        """
+        start = time.monotonic()
+        deadline = start + timeout
+        prev, since = -1, start
         while time.monotonic() < deadline:
             count = self.client.controller_count()
-            if count == prev and count > 0:
-                stable += 1
-                if stable >= 2:
-                    break
-            else:
-                stable = 0
-            prev = count
-            time.sleep(1.5)
+            now = time.monotonic()
+            if count != prev:
+                prev, since = count, now
+                if count:
+                    progress(tr("Suche RGB-Geräte … {v0} gefunden", v0=count))
+            if self._detection_finished():
+                time.sleep(0.5)  # letzte Registrierungen abwarten
+                break
+            if count > 0 and now - since >= (25 if self._log_handle else 12):
+                break  # Log bleibt stumm (gepuffert?): lange genug keine neuen Geräte
+            time.sleep(0.5)
+        else:
+            log.warning("Geräteerkennung nach %.0f s nicht abgeschlossen, nehme %d Geräte", timeout, prev)
+        log.info("Geräteerkennung fertig nach %.1f s", time.monotonic() - start)
         self._load_devices()
 
     def _load_devices(self) -> None:
@@ -209,7 +231,7 @@ class RGBEngine:
                 self.proc = None
                 self._launch(lambda m: None)
                 self._connect(time.monotonic() + 30)
-                self._wait_for_devices(timeout=15)
+                self._wait_for_devices(timeout=40)
             else:
                 self._connect(time.monotonic() + 15)
                 self._load_devices()

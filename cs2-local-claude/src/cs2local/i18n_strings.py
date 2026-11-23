@@ -49,6 +49,7 @@ _T: dict[str, tuple[str, str]] = {
     "Die RGB-Engine wurde unerwartet beendet (Code {v0}). Details: {v1}": (
         "The RGB engine stopped unexpectedly (code {v0}). Details: {v1}",
         "O motor RGB parou inesperadamente (código {v0}). Detalhes: {v1}"),
+    "Suche RGB-Geräte … {v0} gefunden": ("Looking for RGB devices … {v0} found", "Procurando dispositivos RGB … {v0} encontrados"),
     "Eine laufende OpenRGB-Instanz wurde gefunden, verbinde …": (
         "Found a running OpenRGB instance, connecting …",
         "Uma instância do OpenRGB em execução foi encontrada, conectando …"),
