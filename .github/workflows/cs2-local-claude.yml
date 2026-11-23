@@ -86,6 +86,21 @@ jobs:
           Get-Content dist\cs2local_selftest.txt
           if ($p.ExitCode -ne 0) { throw "Selbsttest der EXE fehlgeschlagen (Code $($p.ExitCode))" }
 
+      - name: Test-EXE auf Branch ci-build ablegen (nicht veröffentlicht)
+        if: github.event_name == 'push'
+        shell: pwsh
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP "ci-build"
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          Copy-Item dist\CS2LocalClaude.exe, dist\CS2LocalClaude.exe.sha256 $dir
+          Set-Location $dir
+          git init -q -b ci-build
+          git config user.name "github-actions"
+          git config user.email "actions@users.noreply.github.com"
+          git add .
+          git commit -q -m "Test-EXE von ${{ github.sha }}"
+          git push -q -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" ci-build
+
       - uses: actions/upload-artifact@v4
         with:
           name: CS2LocalClaude
