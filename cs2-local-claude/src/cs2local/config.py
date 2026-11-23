@@ -83,7 +83,33 @@ _DEFAULT_STATES = [
      "Die Bombe ist explodiert: rot bis zur nächsten Runde."),
     ("flashed", "Geblendet (Flash)", "state", (255, 255, 255), False, "solid", 1.0, 0, 100, 100,
      "Weiss, so stark wie du geblendet bist."),
+    # --- weitere Spielzustände aus der Game State Integration
+    ("bomb_critical", "Bombe kritisch", "state", (255, 0, 0), False, "blink", 6.0, 0, 100, 54,
+     "Die letzten 10 Sekunden vor der Explosion: schnelles Stroboskop."),
+    ("carrying_bomb", "Du trägst die Bombe", "state", (255, 140, 0), False, "pulse", 0.5, 0, 40, 21,
+     "Die C4 ist in deinem Inventar."),
+    ("knife_out", "Messer in der Hand", "state", (220, 220, 220), True, "solid", 1.0, 0, 60, 11,
+     "Dein Messer ist gezogen (z. B. beim Laufen)."),
+    ("grenade_out", "Granate in der Hand", "state", (120, 255, 120), False, "pulse", 1.2, 0, 60, 13,
+     "Du hältst eine Granate."),
+    ("no_armor", "Keine Rüstung", "state", (255, 200, 0), False, "pulse", 0.6, 0, 40, 24,
+     "Du lebst, hast aber keine Kevlar-Weste."),
+    ("halftime", "Halbzeit", "state", (90, 90, 255), False, "pulse", 0.3, 0, 70, 18, "Seitenwechsel zur Halbzeit."),
+    ("matchpoint", "Matchpoint", "state", (255, 255, 255), True, "pulse", 1.0, 0, 70, 14,
+     "Ein Team braucht nur noch eine Runde zum Sieg."),
+    ("death", "Gestorben", "event", (255, 0, 0), False, "fade", 1.0, 1.5, 100, 85, "Kurzer roter Blitz, wenn du stirbst."),
+    ("assist", "Assist", "event", (0, 180, 255), False, "fade", 1.0, 0.5, 100, 69, "Du hast bei einem Kill geholfen."),
+    ("triple_kill", "Triple Kill", "event", (255, 215, 0), False, "blink", 4.0, 1.5, 100, 76, "3 Kills in einer Runde."),
+    ("quad_kill", "Quad Kill", "event", (255, 120, 0), False, "blink", 5.0, 2.0, 100, 77, "4 Kills in einer Runde."),
+    ("ace", "Ace", "event", (255, 0, 255), False, "chase", 2.0, 3.0, 100, 78, "5 Kills in einer Runde – das ganze Team."),
+    ("mvp", "MVP", "event", (255, 215, 0), False, "pulse", 1.5, 4.0, 100, 79, "Du bist MVP der Runde."),
+    ("match_won", "Match gewonnen", "event", (255, 255, 255), True, "blink", 2.0, 8.0, 100, 90,
+     "Spielende: dein Team hat gewonnen."),
+    ("match_lost", "Match verloren", "event", (60, 0, 0), False, "fade", 1.0, 8.0, 100, 90,
+     "Spielende: dein Team hat verloren."),
 ]
+
+DEFAULT_DISABLED = {"knife_out", "grenade_out", "no_armor"}  # eher Geschmackssache, standardmässig aus
 
 STATE_ORDER = [s[0] for s in _DEFAULT_STATES]
 
@@ -91,17 +117,17 @@ STATE_ORDER = [s[0] for s in _DEFAULT_STATES]
 CATEGORIES = [
     ("Grundfarben", "Die Farbe im Normalfall: im Menü, als CT oder T und zum Rundenstart.",
      ["team_ct", "team_t", "freezetime", "warmup", "idle"], []),
-    ("Gesundheit", "Wie es dir geht: wenig Leben, Treffer und Tod.",
-     ["low_health", "critical_health", "damage", "dead"],
+    ("Gesundheit", "Wie es dir geht: wenig Leben, Treffer, Rüstung und Tod.",
+     ["low_health", "critical_health", "damage", "death", "dead", "no_armor"],
      [("low_health_threshold", "Wenig Leben ab", " HP", 2, 99), ("critical_health_threshold", "Kritisch ab", " HP", 1, 98)]),
-    ("Kampf", "Was im Gefecht passiert: Kills, Flash, Feuer und Smoke.",
-     ["kill", "headshot", "flashed", "burning", "smoked"], []),
-    ("Bombe", "Alles rund um die C4: gelegt, tödlich, entschärft oder explodiert.",
-     ["bomb_planted", "bomb_lethal", "bomb_defused", "bomb_exploded"], []),
-    ("Waffe", "Deine aktive Waffe: Nachladen und knappe Munition.",
-     ["reloading", "low_ammo"], [("low_ammo_percent", "Munition knapp ab", " % im Magazin", 5, 90)]),
-    ("Runde", "Das Ende einer Runde: gewonnen oder verloren.",
-     ["round_won", "round_lost"], []),
+    ("Kampf", "Was im Gefecht passiert: Kills, Multikills, Flash, Feuer und Smoke.",
+     ["kill", "headshot", "assist", "triple_kill", "quad_kill", "ace", "flashed", "burning", "smoked"], []),
+    ("Bombe", "Alles rund um die C4: tragen, gelegt, kritisch, tödlich, entschärft oder explodiert.",
+     ["carrying_bomb", "bomb_planted", "bomb_critical", "bomb_lethal", "bomb_defused", "bomb_exploded"], []),
+    ("Waffe", "Deine aktive Waffe: Nachladen, knappe Munition, Messer und Granaten.",
+     ["reloading", "low_ammo", "knife_out", "grenade_out"], [("low_ammo_percent", "Munition knapp ab", " % im Magazin", 5, 90)]),
+    ("Runde", "Rundenende, MVP und das Match: Halbzeit, Matchpoint, Sieg oder Niederlage.",
+     ["round_won", "round_lost", "mvp", "halftime", "matchpoint", "match_won", "match_lost"], []),
 ]
 STATE_KEYS = ("enabled", "color", "team_color", "effect", "speed", "duration", "intensity", "priority")
 
@@ -134,7 +160,7 @@ def default_states() -> dict:
     out = {}
     for sid, name, kind, color, team, effect, speed, duration, intensity, prio, desc in _DEFAULT_STATES:
         out[sid] = {
-            "name": name, "kind": kind, "enabled": True, "color": list(color), "team_color": team,
+            "name": name, "kind": kind, "enabled": sid not in DEFAULT_DISABLED, "color": list(color), "team_color": team,
             "effect": effect, "speed": speed, "duration": duration, "intensity": intensity,
             "priority": prio, "desc": desc,
         }

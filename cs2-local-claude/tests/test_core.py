@@ -79,6 +79,44 @@ def test_states():
     print("states ok")
 
 
+def test_new_states():
+    s = config.default_settings()
+    d = StateDetector(lambda: s["options"])
+    st = s["states"]
+    snap = lambda t: set(d.snapshot(t, st))  # noqa: E731
+
+    def full(**kw):
+        data = payload(**{k: v for k, v in kw.items() if k in ("state", "round", "weapons", "steamid")})
+        data["map"].update(kw.get("map", {}))
+        data["player"]["match_stats"] = kw.get("ms", {"kills": 0, "assists": 0, "mvps": 0})
+        return data
+
+    d.update(full(weapons={"a": {"name": "weapon_knife", "type": "Knife", "state": "active"},
+                           "b": {"name": "weapon_c4", "type": "C4", "state": "holstered"}}), now=1)
+    assert {"knife_out", "carrying_bomb"} <= snap(1), snap(1)
+    d.update(full(state={"armor": 0}, weapons={"a": {"name": "weapon_flashbang", "type": "Grenade",
+                                                     "state": "active"}}), now=2)
+    assert {"grenade_out", "no_armor"} <= snap(2), snap(2)
+    for i, k in enumerate((1, 2, 3, 4, 5)):
+        d.update(full(state={"round_kills": k}), now=3 + i)
+    assert "ace" in snap(7.1)
+    d.update(full(state={"round_kills": 0}), now=20)
+    d.update(full(state={"round_kills": 0}, ms={"kills": 0, "assists": 1, "mvps": 1}), now=21)
+    assert {"assist", "mvp"} <= snap(21.1), snap(21.1)
+    d.update(full(state={"health": 0}), now=30)
+    assert "death" in snap(30.1) and "dead" in snap(30.1)
+    d.update(full(round={"phase": "live", "bomb": "planted"}), now=40)
+    assert "bomb_critical" not in snap(60) and "bomb_critical" in snap(71)
+    d.update(full(map={"mode": "competitive", "team_ct": {"score": 12}, "team_t": {"score": 5}}), now=80)
+    assert "matchpoint" in snap(80)
+    d.update(full(map={"phase": "intermission"}), now=81)
+    assert "halftime" in snap(81)
+    d.update(full(map={"phase": "gameover", "team_ct": {"score": 13}, "team_t": {"score": 5}}), now=82)
+    assert "match_won" in snap(82.5)
+    assert not st["knife_out"]["enabled"] and st["bomb_critical"]["enabled"]
+    print("neue Zustände ok")
+
+
 def test_engine():
     s = config.default_settings()
     d = StateDetector(lambda: s["options"])
@@ -143,6 +181,7 @@ def test_server():
 
 if __name__ == "__main__":
     test_states()
+    test_new_states()
     test_engine()
     test_settings_roundtrip()
     test_setup()

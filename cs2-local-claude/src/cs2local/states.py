@@ -15,6 +15,13 @@ def _num(value, default=0):
         return default
 
 
+def _weapons(player: dict) -> list:
+    return [w for w in (player.get("weapons") or {}).values() if isinstance(w, dict)]
+
+
+MATCHPOINT_SCORE = {"competitive": 12, "premier": 12, "scrimcomp2v2": 8}  # Runden bis zum Matchpoint
+
+
 def _active_weapon(player: dict) -> dict | None:
     for weapon in (player.get("weapons") or {}).values():
         if isinstance(weapon, dict) and weapon.get("state") in ("active", "reloading"):
@@ -67,7 +74,10 @@ class StateDetector:
         team = self._my_team
 
         prev_rnd = self._prev.get("round") or {}
+        prev_mp = self._prev.get("map") or {}
         prev_ps = (self._prev.get("player") or {}).get("state") or {}
+        ms = player.get("match_stats") or {}
+        prev_ms = (self._prev.get("player") or {}).get("match_stats") or {}
 
         active: dict[str, float] = {}
         in_game = bool(mp) and player.get("activity") != "menu"
@@ -86,8 +96,15 @@ class StateDetector:
 
             if mp.get("phase") == "warmup":
                 active["warmup"] = 1.0
+            elif mp.get("phase") == "intermission":
+                active["halftime"] = 1.0
             elif rnd.get("phase") == "freezetime":
                 active["freezetime"] = 1.0
+            need = MATCHPOINT_SCORE.get(str(mp.get("mode") or "").lower())
+            if need and mp.get("phase") == "live":
+                scores = [_num((mp.get("team_ct") or {}).get("score")), _num((mp.get("team_t") or {}).get("score"))]
+                if max(scores) == need:
+                    active["matchpoint"] = 1.0
 
             if player and (not is_own or health == 0):
                 active["dead"] = 1.0
@@ -108,8 +125,17 @@ class StateDetector:
                 smoked = _num(ps.get("smoked"))
                 if smoked > 0:
                     active["smoked"] = max(0.3, min(1.0, smoked / 255.0))
+                if not _num(ps.get("armor")):
+                    active["no_armor"] = 1.0
+                if any(str(w.get("type", "")).lower() == "c4" or w.get("name") == "weapon_c4" for w in _weapons(player)):
+                    active["carrying_bomb"] = 1.0
                 weapon = _active_weapon(player)
                 if weapon:
+                    wtype = str(weapon.get("type", "")).lower()
+                    if wtype == "knife":
+                        active["knife_out"] = 1.0
+                    elif wtype == "grenade":
+                        active["grenade_out"] = 1.0
                     if weapon.get("state") == "reloading":
                         active["reloading"] = 1.0
                     else:
@@ -134,11 +160,25 @@ class StateDetector:
                     win = rnd.get("win_team")
                     if win and team:
                         self._fire("round_won" if win == team else "round_lost", now)
+                if mp.get("phase") == "gameover" and prev_mp.get("phase") != "gameover" and team:
+                    mine = _num((mp.get("team_ct" if team == "CT" else "team_t") or {}).get("score"))
+                    other = _num((mp.get("team_t" if team == "CT" else "team_ct") or {}).get("score"))
+                    if mine != other:
+                        self._fire("match_won" if mine > other else "match_lost", now)
+                if self._prev_own and _num(prev_ps.get("health")) > 0 and (not is_own or health == 0) and player:
+                    self._fire("death", now)
                 if is_own and self._prev_own:
+                    kills, prev_kills = _num(ps.get("round_kills")), _num(prev_ps.get("round_kills"))
                     if _num(ps.get("round_killhs")) > _num(prev_ps.get("round_killhs")):
                         self._fire("headshot", now)
-                    elif _num(ps.get("round_kills")) > _num(prev_ps.get("round_kills")):
+                    elif kills > prev_kills:
                         self._fire("kill", now)
+                    if kills > prev_kills and kills >= 3:
+                        self._fire({3: "triple_kill", 4: "quad_kill"}.get(int(kills), "ace"), now)
+                    if _num(ms.get("assists")) > _num(prev_ms.get("assists")):
+                        self._fire("assist", now)
+                    if _num(ms.get("mvps")) > _num(prev_ms.get("mvps")):
+                        self._fire("mvp", now)
                     prev_health = _num(prev_ps.get("health"), None)
                     if (health and prev_health is not None and health < prev_health
                             and "flashed" not in active and "burning" not in active and bomb != "planted"):
@@ -175,6 +215,9 @@ class StateDetector:
             if not self.connected(now):
                 return {"idle": (now, 1.0)}
             out = {sid: (now - start, self._alpha.get(sid, 1.0)) for sid, start in self._states.items()}
+            planted = self._states.get("bomb_planted")
+            if planted is not None and now - planted >= 30.0:  # letzte 10 Sekunden bis zur Explosion
+                out["bomb_critical"] = (now - planted - 30.0, 1.0)
             for sid, start in list(self._events.items()):
                 duration = float(states_cfg.get(sid, {}).get("duration") or 1.0)
                 age = now - start
