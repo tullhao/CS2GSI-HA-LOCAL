@@ -251,7 +251,7 @@ class MainWindow(QMainWindow):
     def _page_effects(self) -> QWidget:
         w, lay = self._page()
         lay.addWidget(_title("Effekte", "Wie sollen deine LEDs reagieren? Jede Karte zeigt live, wie es aussieht. "
-                                        "„Auf Geräten zeigen“ spielt den Effekt 3 Sekunden auf deinen Geräten ab."))
+                                        "„▶ Zeigen“ spielt ihn 3 Sekunden auf deinen Geräten ab."))
         self.effects_page = EffectsPage(self.settings, self._live_team)
         self.effects_page.device_preview.connect(self._preview)
         lay.addWidget(self.effects_page)
