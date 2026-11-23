@@ -54,7 +54,7 @@ class DeviceCheckDialog(QDialog):
         self.decided: dict = {}  # Gerät -> Methode, die im Check funktioniert hat
 
         self.setWindowTitle("Geräte-Check")
-        self.setMinimumWidth(560)
+        self.setMinimumWidth(600)
         lay = QVBoxLayout(self)
         lay.setContentsMargins(26, 22, 26, 20)
         lay.setSpacing(14)
@@ -132,6 +132,8 @@ class DeviceCheckDialog(QDialog):
             self.methods[dkey] = "static"
         else:  # bewährte Methode dieses Geräts weiterverwenden, sonst zuerst Direktsteuerung
             self.methods[dkey] = self.decided.get(dkey, "direct")
+        self.layout().activate()
+        self.adjustSize()
         self._start_blink()
 
     def _start_blink(self) -> None:
