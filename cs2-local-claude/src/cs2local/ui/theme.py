@@ -50,7 +50,7 @@ QPushButton#Segment {{
     background: {SURFACE}; border: 1px solid {BORDER}; border-radius: 16px; padding: 7px 16px; color: {MUTED};
 }}
 QPushButton#Segment:hover {{ color: {TEXT}; border-color: {MUTED}; }}
-QPushButton#Segment:checked {{ background: {ACCENT}; border-color: {ACCENT}; color: #111; font-weight: 700; }}
+QPushButton#Segment:checked {{ background: {ACCENT}; border-color: {ACCENT}; color: #111; }}
 
 QFrame#Card {{ background: {SURFACE}; border: 1px solid {BORDER}; border-radius: 16px; }}
 QFrame#Card[disabled="true"] {{ background: #13151a; }}

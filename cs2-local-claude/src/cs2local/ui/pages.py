@@ -36,7 +36,7 @@ class FlowLayout(QLayout):
         return self._items.pop(i) if 0 <= i < len(self._items) else None
 
     def expandingDirections(self):  # noqa: N802
-        return Qt.Orientations(0)
+        return Qt.Orientation(0)
 
     def hasHeightForWidth(self):  # noqa: N802
         return True
@@ -94,6 +94,44 @@ def _segmented(labels, parent) -> tuple[QHBoxLayout, QButtonGroup]:
     return row, group
 
 
+class ResponsiveGrid(QWidget):
+    """Karten in zwei Spalten, auf schmalen Bildschirmen in einer."""
+
+    def __init__(self, min_column: int = 450):
+        super().__init__()
+        self.min_column = min_column
+        self.widgets: list = []
+        self.columns = 0
+        self.grid = QGridLayout(self)
+        self.grid.setContentsMargins(0, 0, 0, 0)
+        self.grid.setSpacing(14)
+
+    def set_widgets(self, widgets: list) -> None:
+        for w in self.widgets:
+            self.grid.removeWidget(w)
+            if w not in widgets:
+                w.deleteLater()
+        self.widgets = list(widgets)
+        self.columns = 0
+        self._relayout()
+
+    def resizeEvent(self, event):  # noqa: N802
+        super().resizeEvent(event)
+        self._relayout()
+
+    def _relayout(self) -> None:
+        cols = 2 if self.width() >= 2 * self.min_column + 14 else 1
+        if cols == self.columns:
+            return
+        self.columns = cols
+        for w in self.widgets:
+            self.grid.removeWidget(w)
+        for i, w in enumerate(self.widgets):
+            self.grid.addWidget(w, i // cols, i % cols)
+        for c in range(2):
+            self.grid.setColumnStretch(c, 1 if c < cols else 0)
+
+
 # ------------------------------------------------------------------------------------------- Geräte
 class DeviceCard(QFrame):
     selection_changed = Signal(str, bool)
@@ -112,7 +150,7 @@ class DeviceCard(QFrame):
         head = QHBoxLayout()
         head.setSpacing(14)
         self.icon = DeviceIcon(zones[0]["type_id"])
-        head.addWidget(self.icon)
+        head.addWidget(self.icon, 0, Qt.AlignTop)
         col = QVBoxLayout()
         col.setSpacing(2)
         title = _label(device, "CardHeading")
@@ -120,7 +158,6 @@ class DeviceCard(QFrame):
         sub = zones[0]["type"] + (f"  ·  {vendor}" if vendor and vendor.lower() not in device.lower() else "")
         col.addWidget(title)
         col.addWidget(_label(sub, "Muted"))
-        col.addStretch(1)
         head.addLayout(col, 1)
         self.master = ToggleSwitch()
         self.master.setToolTip("Alle Zonen dieses Geräts verwenden")
@@ -162,6 +199,7 @@ class DeviceCard(QFrame):
             grid.setColumnStretch(2, 1)
             lay.addWidget(box)
 
+        lay.addStretch(1)
         foot = QHBoxLayout()
         self.summary = _label("", "Muted")
         foot.addWidget(self.summary, 1)
@@ -227,33 +265,26 @@ class DevicesPage(QWidget):
             btn.clicked.connect(slot)
             bar.addWidget(btn)
         lay.addLayout(bar)
-        self.grid = QGridLayout()
-        self.grid.setSpacing(14)
-        self.grid.setColumnStretch(0, 1)
-        self.grid.setColumnStretch(1, 1)
-        lay.addLayout(self.grid)
+        self.grid = ResponsiveGrid(min_column=430)
+        lay.addWidget(self.grid)
         self.empty = _label("Noch keine Geräte. Die RGB-Engine sucht gerade, oder es wurde nichts gefunden "
                             "(Adminrechte? Andere RGB-Software offen?).", "Muted", wrap=True)
         lay.addWidget(self.empty)
         lay.addStretch(1)
 
     def populate(self, zones: list) -> None:
-        while self.grid.count():
-            item = self.grid.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
         self.cards.clear()
         selected = set(self.settings["devices"])
         by_device: dict = {}
         for z in zones:
             by_device.setdefault(z["device"], []).append(z)
-        for i, (device, dz) in enumerate(by_device.items()):
+        for device, dz in by_device.items():
             card = DeviceCard(device, dz, selected)
             card.selection_changed.connect(self._on_select)
             card.resize_requested.connect(self.resize_requested.emit)
             card.test_requested.connect(self.test_requested.emit)
-            self.grid.addWidget(card, i // 2, i % 2)
             self.cards[device] = card
+        self.grid.set_widgets(list(self.cards.values()))
         self.empty.setVisible(not by_device)
         self._update_summary()
 
@@ -312,10 +343,6 @@ class StateCard(QFrame):
                        else "Leuchtet, solange die Situation andauert")
         head.addWidget(tag)
         head.addStretch(1)
-        show = QPushButton("Auf Geräten zeigen")
-        show.setObjectName("Small")
-        show.clicked.connect(lambda: self.device_preview.emit(self.sid))
-        head.addWidget(show)
         lay.addLayout(head)
 
         lay.addWidget(_label(cfg["desc"], "Muted", wrap=True))
@@ -341,7 +368,12 @@ class StateCard(QFrame):
         self.effect.currentIndexChanged.connect(lambda _i: self._set("effect", self.effect.currentData()))
         row.addWidget(self.effect)
         row.addStretch(1)
-        self.more = QPushButton("Feineinstellungen  ▾")
+        show = QPushButton("▶  Zeigen")
+        show.setObjectName("Small")
+        show.setToolTip("Spielt den Effekt 3 Sekunden auf deinen Geräten ab")
+        show.clicked.connect(lambda: self.device_preview.emit(self.sid))
+        row.addWidget(show)
+        self.more = QPushButton("Mehr  ▾")
         self.more.setObjectName("Link")
         self.more.setCheckable(True)
         self.more.toggled.connect(self._toggle_details)
@@ -409,7 +441,7 @@ class StateCard(QFrame):
 
     def _toggle_details(self, on: bool) -> None:
         self.details.setVisible(on)
-        self.more.setText("Feineinstellungen  ▴" if on else "Feineinstellungen  ▾")
+        self.more.setText("Weniger  ▴" if on else "Mehr  ▾")
 
     def _pick_color(self) -> None:
         if self.cfg.get("team_color"):
@@ -537,17 +569,16 @@ class EffectsPage(QWidget):
             spin.valueChanged.connect(lambda v, k=key: self._opt(k, v))
             head.addWidget(spin)
         lay.addLayout(head)
-        grid = QGridLayout()
-        grid.setSpacing(14)
-        grid.setColumnStretch(0, 1)
-        grid.setColumnStretch(1, 1)
-        for i, sid in enumerate(ids):
+        grid = ResponsiveGrid(min_column=470)
+        cards = []
+        for sid in ids:
             card = StateCard(sid, self.settings, self._team)
             card.device_preview.connect(self.device_preview.emit)
             card.changed.connect(self._card_changed)
-            self.cards.append(card)
-            grid.addWidget(card, i // 2, i % 2, Qt.AlignTop)
-        lay.addLayout(grid)
+            cards.append(card)
+        self.cards.extend(cards)
+        grid.set_widgets(cards)
+        lay.addWidget(grid)
         lay.addStretch(1)
         return page
 

@@ -64,8 +64,9 @@ class StatusCard(QFrame):
     def set(self, state: str, text: str) -> None:
         symbol, color = ICONS[state]
         self.icon.setText(symbol)
-        self.icon.setStyleSheet(
-            f"background:{color}22; color:{color}; border-radius:20px; font-size:15pt; font-weight:800;")
+        r, g, b = int(color[1:3], 16), int(color[3:5], 16), int(color[5:7], 16)
+        self.icon.setStyleSheet(f"background: rgba({r},{g},{b},40); color:{color}; border-radius:20px; "
+                                "font-size:15pt; font-weight:800;")
         self.text.setText(text)
 
 
@@ -89,7 +90,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.settings = settings
         self.setWindowTitle(f"{config.APP_NAME} {config.VERSION}")
-        self.resize(1240, 820)
+        self.resize(1360, 880)
         self.setMinimumSize(1000, 660)
 
         opts = settings["options"]
@@ -158,6 +159,7 @@ class MainWindow(QMainWindow):
             wrap.setWidgetResizable(True)
             wrap.setFrameShape(QFrame.NoFrame)
             wrap.setStyleSheet("QScrollArea{background:transparent;border:none;}")
+            wrap.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
             page.setObjectName("Root")
             wrap.setWidget(page)
             self.stack.addWidget(wrap)
@@ -283,6 +285,7 @@ class MainWindow(QMainWindow):
         self.lbl_top.setObjectName("LiveState")
         self.lbl_sub = QLabel("Drück auf Start, sobald du bereit bist.")
         self.lbl_sub.setObjectName("Muted")
+        self.lbl_sub.setWordWrap(True)
         col.addStretch(1)
         col.addWidget(self.lbl_top)
         col.addWidget(self.lbl_sub)
@@ -316,6 +319,7 @@ class MainWindow(QMainWindow):
         lay.addWidget(info)
         hint = QLabel("Tipp: Wurde die Config neu geschrieben, während CS2 schon lief, starte CS2 einmal neu.")
         hint.setObjectName("Muted")
+        hint.setWordWrap(True)
         lay.addWidget(hint)
         lay.addStretch(1)
         return w

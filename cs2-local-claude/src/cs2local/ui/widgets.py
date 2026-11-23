@@ -150,10 +150,10 @@ def state_preview_source(cfg: dict, color_fn):
         if not cfg.get("enabled", True):
             return [(18, 18, 22)] * n
         if kind == "event":  # kurzes Ereignis: abspielen, Pause, wiederholen
-            cycle = duration + 0.9
+            cycle = duration + 0.7
             t = elapsed % cycle
-            if t > duration:
-                return [(0, 0, 0)] * n
+            if t > duration:  # kurze Pause, gedimmt
+                return [tuple(int(v * 0.08) for v in color)] * n
             return render(effect, color, speed, t, n, duration)
         if sid == "bomb_planted":  # 40 Sekunden Countdown im Zeitraffer (10 s)
             age = (elapsed % 10.0) * 4.0
