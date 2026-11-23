@@ -182,6 +182,7 @@ def default_settings() -> dict:
         "engine": "stable",
         "language": "en",
         "language_chosen": False,
+        "restore_dynamic_lighting": False,  # Windows-Dynamische Beleuchtung beim Schliessen wieder an?
         "device_check_done": False,
         "states": default_states(),
         "options": dict(DEFAULT_OPTIONS),
@@ -208,6 +209,7 @@ def load_settings() -> dict | None:
                                 if v in ("direct", "static")}
     merged["engine"] = "dev" if data.get("engine") == "dev" else "stable"
     merged["language"] = data.get("language") if data.get("language") in ("en", "de", "pt") else "en"
+    merged["restore_dynamic_lighting"] = bool(data.get("restore_dynamic_lighting", False))
     merged["language_chosen"] = data.get("language") in ("en", "de", "pt")
     merged["device_check_done"] = bool(data.get("device_check_done", False))
     merged["fans_off"] = {str(k): [int(i) for i in v] for k, v in data.get("fans_off", {}).items()}

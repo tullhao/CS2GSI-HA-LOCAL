@@ -43,7 +43,7 @@ def choose_settings(last: dict | None, autostart: bool = False) -> dict:
     if box.clickedButton() is take:
         return last
     for key in ("cs2_path", "gsi_token", "zone_sizes", "zone_layout", "pawnio_declined", "device_methods", "engine",
-                "language", "language_chosen"):  # technische Werte behalten
+                "language", "language_chosen", "restore_dynamic_lighting"):  # technische Werte behalten
         settings[key] = last.get(key, settings[key])
     for key in ("gsi_port", "openrgb_port"):
         settings["options"][key] = last["options"][key]

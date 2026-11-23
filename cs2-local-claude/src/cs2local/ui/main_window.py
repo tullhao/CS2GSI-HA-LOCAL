@@ -409,7 +409,7 @@ class MainWindow(QMainWindow):
         idle_text = tr(" Installiert, aber nicht aktiv: {v0}.", v0=', '.join(idle)) if idle else ""
         if not active:
             self.card_software.set("ok", tr("Keine störende RGB-Software aktiv.") + idle_text)
-            self._driver_step()
+            self._after_software()
             return
         names = "\n".join(f"•  {name}" for name in active)
         box = QMessageBox(self)
@@ -433,6 +433,21 @@ class MainWindow(QMainWindow):
             time.sleep(1.5)
         else:
             self.card_software.set("warn", tr("Läuft weiter: {v0}. Diese Geräte reagieren evtl. nicht.", v0=', '.join(active)))
+        self._after_software()
+
+    def _after_software(self) -> None:
+        """Windows-Dynamische Beleuchtung ausschalten (blockiert sonst z. B. Gigabyte-Boards), dann weiter."""
+        if system.dynamic_lighting_enabled():
+            if system.set_dynamic_lighting(False):
+                self._dynamic_lighting_off = True
+                note = tr("Windows-Dynamische Beleuchtung für diese Sitzung ausgeschaltet.")
+                if self.settings.get("restore_dynamic_lighting"):
+                    note += " " + tr("Wird beim Schliessen wieder eingeschaltet.")
+                state = self.card_software.state if self.card_software.state != "busy" else "ok"
+                self.card_software.set(state, self.card_software.text.text() + "\n" + note)
+            else:
+                self.card_software.set("warn", self.card_software.text.text() + "\n" +
+                                       tr("Windows-Dynamische Beleuchtung liess sich nicht ausschalten. Bitte in den Windows-Einstellungen unter Personalisierung → Dynamische Beleuchtung abschalten."))
         self._driver_step()
 
     # ---- Schritt: RGB-Engine
@@ -783,6 +798,9 @@ class MainWindow(QMainWindow):
                     self.gsi.stop()
                 self.bridge.close_step.emit(1)
                 self.rgb.shutdown()
+                if (getattr(self, "_dynamic_lighting_off", False) and self.settings.get("restore_dynamic_lighting")
+                        and not getattr(self, "_restart_after_close", False)):
+                    system.set_dynamic_lighting(True)
                 if len(steps) > 2 and not getattr(self, "_restart_after_close", False):
                     self.bridge.close_step.emit(2)
                     errors = vendor_apps.resume()
@@ -810,6 +828,7 @@ class MainWindow(QMainWindow):
         from .settings_dialog import SettingsDialog
         dlg = SettingsDialog(self.settings, self)
         dlg.exec()
+        config.save_settings(self.settings)
         code = dlg.language()
         if code == self.settings.get("language"):
             return

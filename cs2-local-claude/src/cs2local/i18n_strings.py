@@ -355,6 +355,20 @@ _T: dict[str, tuple[str, str]] = {
     "✓ Autostart ist an.": ("✓ Autostart is on.", "✓ Inicialização automática ativada."),
     "✓ Autostart ist aus.": ("✓ Autostart is off.", "✓ Inicialização automática desativada."),
 
+    "Windows-Dynamische Beleuchtung für diese Sitzung ausgeschaltet.": (
+        "Windows Dynamic Lighting switched off for this session.",
+        "Iluminação Dinâmica do Windows desativada nesta sessão."),
+    "Wird beim Schliessen wieder eingeschaltet.": ("It is switched back on when you close the tool.", "Será reativada ao fechar a ferramenta."),
+    "Windows-Dynamische Beleuchtung liess sich nicht ausschalten. Bitte in den Windows-Einstellungen unter Personalisierung → Dynamische Beleuchtung abschalten.": (
+        "Windows Dynamic Lighting could not be switched off. Please turn it off in Windows Settings under Personalization → Dynamic Lighting.",
+        "Não foi possível desativar a Iluminação Dinâmica do Windows. Desative em Configurações do Windows → Personalização → Iluminação dinâmica."),
+    "Windows-Dynamische Beleuchtung beim Schliessen wieder einschalten": (
+        "Turn Windows Dynamic Lighting back on when closing",
+        "Reativar a Iluminação Dinâmica do Windows ao fechar"),
+    "Das Tool schaltet die Dynamische Beleuchtung von Windows beim Start aus, sonst reagieren manche Geräte nicht (z. B. Gigabyte-Mainboards). Standardmässig bleibt sie danach aus.": (
+        "The tool switches off Windows Dynamic Lighting at start, otherwise some devices do not respond (e.g. Gigabyte motherboards). By default it stays off afterwards.",
+        "A ferramenta desativa a Iluminação Dinâmica do Windows ao iniciar, senão alguns dispositivos não respondem (por exemplo, placas-mãe Gigabyte). Por padrão, ela continua desativada depois."),
+
     # --- Startablauf / Beenden ----------------------------------------------------------------------------
     "Wartet …": ("Waiting …", "Aguardando …"),
     "Wird eingerichtet …": ("Setting up …", "Configurando …"),

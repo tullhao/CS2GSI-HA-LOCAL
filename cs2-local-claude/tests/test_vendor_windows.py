@@ -69,3 +69,13 @@ print("Mit gleicher Befehlszeile wieder gestartet:", restarted[0]["cmd"])
 for p in restarted:
     subprocess.run(["taskkill", "/F", "/PID", str(p["pid"])], capture_output=True)
 print("HERSTELLER-SOFTWARE OK")
+
+# Windows-Dynamische Beleuchtung: aus- und wieder einschalten über denselben Registry-Wert wie die Einstellungen
+from cs2local import system  # noqa: E402
+
+before = system.dynamic_lighting_enabled()
+assert before is not None, "Dynamische Beleuchtung nicht lesbar"
+assert system.set_dynamic_lighting(False) and system.dynamic_lighting_enabled() is False
+assert system.set_dynamic_lighting(True) and system.dynamic_lighting_enabled() is True
+system.set_dynamic_lighting(before)
+print("DYNAMISCHE BELEUCHTUNG OK (vorher:", before, ")")

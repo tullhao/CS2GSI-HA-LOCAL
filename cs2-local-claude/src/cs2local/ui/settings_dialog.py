@@ -111,6 +111,17 @@ class SettingsDialog(QDialog):
         lay.addWidget(self.status)
         self.autostart.toggled.connect(self._autostart_toggled)
 
+        line2 = QFrame()
+        line2.setObjectName("Divider")
+        line2.setFixedHeight(1)
+        lay.addWidget(line2)
+        self.restore_dl = ToggleSwitch(bool(settings.get("restore_dynamic_lighting", False)))
+        self.restore_dl.toggled.connect(lambda on: settings.__setitem__("restore_dynamic_lighting", on))
+        lay.addWidget(_row("◐", tr("Windows-Dynamische Beleuchtung beim Schliessen wieder einschalten"),
+                           tr("Das Tool schaltet die Dynamische Beleuchtung von Windows beim Start aus, sonst reagieren "
+                              "manche Geräte nicht (z. B. Gigabyte-Mainboards). Standardmässig bleibt sie danach aus."),
+                           self.restore_dl))
+
         lay.addSpacing(12)
         buttons = QHBoxLayout()
         buttons.addStretch(1)

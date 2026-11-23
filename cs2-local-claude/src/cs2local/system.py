@@ -111,3 +111,48 @@ def set_autostart(enabled: bool) -> tuple[bool, str]:
         return False, (r.stderr or r.stdout).strip()
     log.info("Autostart %s (%s)", "eingeschaltet" if enabled else "ausgeschaltet", sys.executable)
     return True, ""
+
+
+# --- Windows „Dynamische Beleuchtung“ ---------------------------------------------------------------------
+# Windows 11 kann RGB-Geräte über „Lamp Array“ selbst steuern. Solange das an ist, ignorieren manche Controller
+# (z. B. Gigabyte IT5711 auf X870-Boards) jeden anderen Befehl. Schalter: HKCU\Software\Microsoft\Lighting,
+# Wert AmbientLightingEnabled (1 oder fehlt = an, 0 = aus) – derselbe Wert, den die Windows-Einstellungen setzen.
+_LIGHTING_KEY = r"Software\Microsoft\Lighting"
+_LIGHTING_VALUE = "AmbientLightingEnabled"
+
+
+def dynamic_lighting_enabled() -> bool | None:
+    """True/False unter Windows, None, wenn es die Einstellung hier nicht gibt (kein Windows)."""
+    if os.name != "nt":
+        return None
+    import winreg
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, _LIGHTING_KEY) as key:
+            value, _ = winreg.QueryValueEx(key, _LIGHTING_VALUE)
+            return bool(value)
+    except FileNotFoundError:
+        return True  # nie geändert: Windows-Standard ist „an“
+    except OSError as exc:
+        log.warning("Dynamische Beleuchtung nicht lesbar: %s", exc)
+        return None
+
+
+def set_dynamic_lighting(enabled: bool) -> bool:
+    """Schaltet die Dynamische Beleuchtung von Windows an oder aus. Rückgabe: ok."""
+    if os.name != "nt":
+        return False
+    import ctypes
+    import winreg
+    try:
+        with winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, _LIGHTING_KEY, 0, winreg.KEY_SET_VALUE) as key:
+            winreg.SetValueEx(key, _LIGHTING_VALUE, 0, winreg.REG_DWORD, 1 if enabled else 0)
+    except OSError as exc:
+        log.warning("Dynamische Beleuchtung nicht änderbar: %s", exc)
+        return False
+    try:  # Windows über die geänderte Einstellung informieren (wie die Einstellungen-App)
+        result = ctypes.c_size_t()
+        ctypes.windll.user32.SendMessageTimeoutW(0xFFFF, 0x001A, 0, "Lighting", 0x0002, 2000, ctypes.byref(result))
+    except Exception:  # noqa: BLE001
+        pass
+    log.info("Windows-Dynamische Beleuchtung %s", "eingeschaltet" if enabled else "ausgeschaltet")
+    return True
