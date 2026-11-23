@@ -5,6 +5,8 @@ import logging
 import threading
 import time
 
+from .effects import C4_TIMER
+
 log = logging.getLogger(__name__)
 
 
@@ -43,6 +45,8 @@ class StateDetector:
         self._my_team: str | None = None
         self.last_update = 0.0
         self.info: dict = {}
+        self._bomb_synced = False
+        self._bomb_log = (None, 0.0)  # (letzter Inhalt, Zeit) fürs Mitschreiben der Bomben-Daten
 
     @property
     def team(self) -> str | None:
@@ -188,6 +192,7 @@ class StateDetector:
         if set(active) != set(self._states):
             log.info("Situation: %s", ", ".join(sorted(active)))
         self._states = {sid: self._states.get(sid, now) for sid in active}
+        self._sync_bomb_clock(data, now)
         self._alpha = active
         self._prev = data
         self._prev_own = is_own
@@ -203,6 +208,37 @@ class StateDetector:
             "armor": ps.get("armor") if is_own else None,
             "c4_preview": ps.get("health_c4_preview") if is_own else None,
         }
+
+    def _sync_bomb_clock(self, data: dict, now: float) -> None:
+        """C4-Uhr: Startzeit von „Bombe gelegt“ an den Countdown des Spiels angleichen, wenn CS2 ihn schickt.
+
+        CS2 meldet keine einzelnen Pieptöne, nur „gelegt“, „entschärft“, „explodiert“. Den Takt rechnet das Tool
+        selbst; wenn das Spiel die Restzeit mitschickt (phase_countdowns oder bomb.countdown), ist die Uhr exakt.
+        """
+        rnd = data.get("round") or {}
+        pc = data.get("phase_countdowns") or {}
+        bomb = data.get("bomb") or {}
+        # Mitschreiben, was wirklich ankommt (höchstens 2x pro Sekunde, Statuswechsel sofort)
+        content = (rnd.get("bomb"), pc.get("phase"), pc.get("phase_ends_in"), bomb.get("state"), bomb.get("countdown"))
+        last, last_t = self._bomb_log
+        if any(v is not None for v in (rnd.get("bomb"), bomb.get("state"))) or pc.get("phase") == "bomb":
+            if content != last and (content[0] != (last or (None,))[0] or now - last_t >= 0.5):
+                log.info("GSI-Bombe: round.bomb=%s | phase_countdowns=%s %s | bomb=%s %s", *content)
+                self._bomb_log = (content, now)
+        if "bomb_planted" not in self._states:
+            self._bomb_synced = False
+            return
+        remaining = None
+        if pc.get("phase") == "bomb" and pc.get("phase_ends_in") not in (None, ""):
+            remaining = _num(pc.get("phase_ends_in"))
+        elif bomb.get("state") == "planted" and bomb.get("countdown") not in (None, ""):
+            remaining = _num(bomb.get("countdown"))
+        if remaining is not None and not self._bomb_synced and 0 < remaining <= C4_TIMER:
+            planted = now - (C4_TIMER - remaining)
+            log.info("C4-Uhr nach Spiel-Countdown gestellt (%.2f s Restzeit, Korrektur %+.2f s)",
+                     remaining, planted - self._states["bomb_planted"])
+            self._states["bomb_planted"] = planted
+            self._bomb_synced = True
 
     # ---------------------------------------------------------------- Ausgang
     def connected(self, now: float | None = None) -> bool:

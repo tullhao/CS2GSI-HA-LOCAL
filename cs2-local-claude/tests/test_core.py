@@ -181,6 +181,20 @@ def test_c4_beat():
         st = config.load_settings()["states"]
     assert st["bomb_planted"]["effect"] == "c4" and st["bomb_lethal"]["effect"] == "c4"
     assert st["bomb_critical"]["effect"] == "solid"
+    # Uhr nach dem Spiel-Countdown: Meldung kommt 0,3 s nach dem Legen an (Restzeit 39,7 s)
+    s2 = config.default_settings()
+    d = StateDetector(lambda: s2["options"])
+    p = payload(round={"phase": "live", "bomb": "planted"})
+    p["phase_countdowns"] = {"phase": "bomb", "phase_ends_in": "39.7"}
+    d.update(p, now=100.0)
+    age = d.snapshot(100.0, s2["states"])["bomb_planted"][0]
+    assert abs(age - 0.3) < 1e-6, age
+    p["phase_countdowns"] = {"phase": "bomb", "phase_ends_in": "38.0"}  # spätere Pakete verstellen nichts
+    d.update(p, now=101.75)
+    assert abs(d.snapshot(101.75, s2["states"])["bomb_planted"][0] - 2.05) < 1e-6
+    d.update(payload(round={"phase": "live"}), now=102.0)
+    d.update(payload(round={"phase": "live", "bomb": "planted"}), now=110.0)  # ohne Countdown: Ankunftszeit
+    assert d.snapshot(110.0, s2["states"])["bomb_planted"][0] == 0.0
     print("C4-Takt ok")
 
 

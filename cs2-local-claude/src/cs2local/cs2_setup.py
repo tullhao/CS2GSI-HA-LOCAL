@@ -32,6 +32,7 @@ GSI_TEMPLATE = """"CS2 Local Claude"
         "player_weapons"     "1"
         "player_match_stats" "1"
         "bomb"               "1"
+        "phase_countdowns"   "1"
     }}
 }}
 """
