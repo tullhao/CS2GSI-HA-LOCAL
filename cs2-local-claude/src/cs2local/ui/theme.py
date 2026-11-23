@@ -2,9 +2,9 @@
 
 ACCENT = "#ff8a1f"
 BG = "#0f1115"
-SURFACE = "#171a21"
+SURFACE = "#15181e"
 SURFACE_2 = "#1f232c"
-BORDER = "#2a2f3a"
+BORDER = "#252a34"
 TEXT = "#e8eaf0"
 MUTED = "#8b93a5"
 OK = "#33d17a"
@@ -52,9 +52,11 @@ QPushButton#Segment {{
 QPushButton#Segment:hover {{ color: {TEXT}; border-color: {MUTED}; }}
 QPushButton#Segment:checked {{ background: {ACCENT}; border-color: {ACCENT}; color: #111; }}
 
-QFrame#Card {{ background: {SURFACE}; border: 1px solid {BORDER}; border-radius: 16px; }}
+QFrame#Card {{ background: {SURFACE}; border: 1px solid {BORDER}; border-radius: 18px; }}
+QFrame#Divider {{ background: {BORDER}; border: none; }}
+QLabel#StepTitle {{ font-size: 10.5pt; font-weight: 600; }}
 QFrame#Card[disabled="true"] {{ background: #13151a; }}
-QFrame#Inset {{ background: {BG}; border: 1px solid {BORDER}; border-radius: 12px; }}
+QFrame#Inset {{ background: #101318; border: none; border-radius: 14px; }}
 QLabel#CardHeading {{ font-size: 11.5pt; font-weight: 700; }}
 QLabel#Tag {{ color: {MUTED}; background: {SURFACE_2}; border-radius: 9px; padding: 2px 8px; font-size: 8.5pt; }}
 QLabel#LiveState {{ font-size: 20pt; font-weight: 800; }}

@@ -22,6 +22,7 @@ from ..states import StateDetector
 from . import theme
 from .check_dialog import DeviceCheckDialog
 from .pages import DevicesPage, EffectsPage, ZoneSetupDialog
+from .setup_view import SetupView
 from .widgets import LedPreview
 
 log = logging.getLogger(__name__)
@@ -36,39 +37,7 @@ class Bridge(QObject):
     rgb_done = Signal(bool, str)
     task_done = Signal(str, str)
     pawnio_done = Signal(bool, bool, str)
-
-
-class StatusCard(QFrame):
-    def __init__(self, title: str):
-        super().__init__()
-        self.setObjectName("Card")
-        lay = QHBoxLayout(self)
-        lay.setContentsMargins(18, 16, 18, 16)
-        lay.setSpacing(14)
-        self.icon = QLabel("…")
-        self.icon.setFixedSize(40, 40)
-        self.icon.setAlignment(Qt.AlignCenter)
-        col = QVBoxLayout()
-        col.setSpacing(3)
-        t = QLabel(title)
-        t.setObjectName("CardHeading")
-        self.text = QLabel()
-        self.text.setObjectName("Muted")
-        self.text.setWordWrap(True)
-        self.text.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        col.addWidget(t)
-        col.addWidget(self.text)
-        lay.addWidget(self.icon, 0, Qt.AlignTop)
-        lay.addLayout(col, 1)
-        self.set("busy", "Wird geprüft …")
-
-    def set(self, state: str, text: str) -> None:
-        symbol, color = ICONS[state]
-        self.icon.setText(symbol)
-        r, g, b = int(color[1:3], 16), int(color[3:5], 16), int(color[5:7], 16)
-        self.icon.setStyleSheet(f"background: rgba({r},{g},{b},40); color:{color}; border-radius:20px; "
-                                "font-size:15pt; font-weight:800;")
-        self.text.setText(text)
+    software_done = Signal(object)
 
 
 def _title(text: str, sub: str) -> QWidget:
@@ -100,6 +69,7 @@ class MainWindow(QMainWindow):
         self.bridge.rgb_done.connect(self._on_rgb_done)
         self.bridge.task_done.connect(self._on_task_done)
         self.bridge.pawnio_done.connect(self._on_pawnio_done)
+        self.bridge.software_done.connect(self._on_software_done)
 
         self.rgb = RGBEngine(int(opts["openrgb_port"]))
         self.detector = StateDetector(lambda: self.settings["options"])
@@ -202,18 +172,12 @@ class MainWindow(QMainWindow):
         w, lay = self._page()
         lay.addWidget(_title("Übersicht", "Das Tool prüft dein System und richtet alles für diese Sitzung ein. "
                                           "Alles Nötige ist eingebaut, es wird nichts heruntergeladen."))
-        grid = QGridLayout()
-        grid.setSpacing(14)
-        self.card_admin = StatusCard("Adminrechte")
-        self.card_cs2 = StatusCard("Counter-Strike 2")
-        self.card_gsi = StatusCard("Spieldaten (Game State Integration)")
-        self.card_driver = StatusCard("Treiber für RGB-Arbeitsspeicher")
-        self.card_rgb = StatusCard("RGB-Engine und Geräte")
-        self.card_game = StatusCard("Verbindung zum Spiel")
-        cards = [self.card_admin, self.card_cs2, self.card_gsi, self.card_driver, self.card_rgb, self.card_game]
-        for i, card in enumerate(cards):
-            grid.addWidget(card, i // 2, i % 2)
-        lay.addLayout(grid)
+        self.setup_view = SetupView(["Adminrechte", "Counter-Strike 2", "Spieldaten (Game State Integration)",
+                                     "Andere RGB-Software", "Treiber für RGB-Arbeitsspeicher",
+                                     "RGB-Engine und Geräte", "Verbindung zum Spiel"])
+        (self.card_admin, self.card_cs2, self.card_gsi, self.card_software, self.card_driver, self.card_rgb,
+         self.card_game) = self.setup_view.rows
+        lay.addWidget(self.setup_view)
 
         row = QHBoxLayout()
         for text, slot in (("CS2-Ordner wählen …", self._choose_cs2), ("Config neu schreiben", self._write_gsi)):
@@ -357,18 +321,19 @@ class MainWindow(QMainWindow):
             self.card_gsi.set("error", f"Empfang nicht möglich: {exc}")
             self.gsi = None
         self._write_gsi()
-        self._driver_step()
+        self._software_step()
 
     # ---- Schritt: PawnIO
     def _driver_step(self) -> None:
         if system.pawnio_installed():
             self.card_driver.set("ok", "PawnIO ist installiert. Arbeitsspeicher und Mainboard können erkannt werden.")
-            self._conflict_step()
+            self._start_rgb()
             return
         self.btn_driver.show()
         if self.settings.get("pawnio_declined"):
-            self.card_driver.set("warn", "PawnIO ist nicht installiert. RGB-Arbeitsspeicher wird übersprungen.")
-            self._conflict_step()
+            self.card_driver.set("warn", "PawnIO ist nicht installiert. RGB-Arbeitsspeicher wird übersprungen. "
+                                         "Unten auf „Treiber installieren“ klicken, wenn du ihn willst.")
+            self._start_rgb()
             return
         self._ask_pawnio(force=False)
 
@@ -378,7 +343,7 @@ class MainWindow(QMainWindow):
                                     "Adminrechte. Bitte das Tool neu starten und die Windows-Abfrage bestätigen.")
             if not force:
                 self.card_driver.set("warn", "PawnIO ist nicht installiert (keine Adminrechte).")
-                self._conflict_step()
+                self._start_rgb()
             return
         box = QMessageBox(self)
         box.setWindowTitle("Treiber für RGB-Arbeitsspeicher")
@@ -401,7 +366,7 @@ class MainWindow(QMainWindow):
             self.settings["pawnio_declined"] = True
             self.card_driver.set("warn", "PawnIO ist nicht installiert. RGB-Arbeitsspeicher wird übersprungen.")
             if not force:
-                self._conflict_step()
+                self._start_rgb()
             return
         self.settings["pawnio_declined"] = False
         self.card_driver.set("busy", "Installiere PawnIO …")
@@ -427,38 +392,47 @@ class MainWindow(QMainWindow):
         if self._pawnio_force:
             self._restart_rgb()
         else:
-            self._conflict_step()
+            self._start_rgb()
 
     # ---- Schritt: andere RGB-Programme
-    def _conflict_step(self) -> None:
-        found = vendor_apps.scan()
-        if found:
-            lines = []
-            for name, items in found.items():
-                parts = []
-                if items["services"]:
-                    parts.append(f"{len(items['services'])} Dienst{'e' if len(items['services']) != 1 else ''}")
-                if items["processes"]:
-                    parts.append(f"{len(items['processes'])} Programm{'e' if len(items['processes']) != 1 else ''}")
-                lines.append(f"• {name}  ({', '.join(parts)})")
-            box = QMessageBox(self)
-            box.setWindowTitle("Andere RGB-Software läuft")
-            box.setIcon(QMessageBox.Information)
-            box.setText("<b>Diese Programme steuern deine LEDs ebenfalls und blockieren die Geräte:</b>")
-            box.setInformativeText(
-                "\n".join(lines) + "\n\nDas Tool pausiert sie für diese Sitzung. Beim Schliessen startet es "
-                "sie automatisch wieder, dann ist deine gewohnte Beleuchtung sofort zurück.")
-            pause = box.addButton("Pausieren und weiter", QMessageBox.AcceptRole)
-            box.addButton("Laufen lassen", QMessageBox.RejectRole)
-            box.setDefaultButton(pause)
-            box.exec()
-            if box.clickedButton() is pause:
-                self.card_rgb.set("busy", "Pausiere andere RGB-Software …")
-                failed = vendor_apps.pause(found)
-                if failed:
-                    QMessageBox.warning(self, config.APP_NAME, "Nicht pausieren liess sich:\n" + "\n".join(failed))
-                time.sleep(1.5)
-        self._start_rgb()
+    def _software_step(self) -> None:
+        self.card_software.set("busy", "Prüfe, welche RGB-Programme installiert sind und laufen …")
+        threading.Thread(target=lambda: self.bridge.software_done.emit(vendor_apps.scan()),
+                         name="software-scan", daemon=True).start()
+
+    def _on_software_done(self, found: dict) -> None:
+        active = vendor_apps.running(found)
+        idle = [name for name in found if name not in active]
+        idle_text = f" Installiert, aber nicht aktiv: {', '.join(idle)}." if idle else ""
+        if not active:
+            self.card_software.set("ok", "Keine störende RGB-Software aktiv." + idle_text)
+            self._driver_step()
+            return
+        names = "\n".join(f"•  {name}" for name in active)
+        box = QMessageBox(self)
+        box.setWindowTitle("Andere RGB-Software")
+        box.setIcon(QMessageBox.Information)
+        count = len(active)
+        box.setText(f"<b>{count} Programm{'e' if count != 1 else ''} steuer{'n' if count != 1 else 't'} deine LEDs "
+                    "gerade selbst und blockier" + ("en" if count != 1 else "t") + " die Geräte:</b>")
+        box.setInformativeText(
+            f"{names}\n\nDas Tool pausiert sie für diese Sitzung. Beim Schliessen startet es sie automatisch "
+            "wieder, dann ist deine gewohnte Beleuchtung sofort zurück." + ("\n\n" + idle_text.strip() if idle else ""))
+        pause = box.addButton("Pausieren und weiter", QMessageBox.AcceptRole)
+        box.addButton("Laufen lassen", QMessageBox.RejectRole)
+        box.setDefaultButton(pause)
+        box.exec()
+        if box.clickedButton() is pause:
+            self.card_software.set("busy", "Pausiere …")
+            failed = vendor_apps.pause(found)
+            if failed:
+                self.card_software.set("warn", f"Pausiert, aber nicht alles liess sich stoppen: {'; '.join(failed)}")
+            else:
+                self.card_software.set("ok", f"{', '.join(active)} pausiert. Startet beim Schliessen wieder.")
+            time.sleep(1.5)
+        else:
+            self.card_software.set("warn", f"Läuft weiter: {', '.join(active)}. Diese Geräte reagieren evtl. nicht.")
+        self._driver_step()
 
     # ---- Schritt: RGB-Engine
     def _start_rgb(self) -> None:
@@ -672,6 +646,7 @@ class MainWindow(QMainWindow):
         else:
             self.card_game.set("busy", "Warte auf CS2 … starte das Spiel.")
 
+        self.setup_view.refresh_headline()
         running = self.engine.running
         if self.btn_start.property("running") != running:
             self.btn_start.setProperty("running", running)

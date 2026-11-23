@@ -52,6 +52,13 @@ settings["zone_layout"]["Corsair Commander Pro::Corsair RGB Header 1"] = {
     "name": "Corsair LL120 / LL140", "kind": "fan", "count": 6, "per": 16, "total": 96}
 settings["fans_off"]["Corsair Commander Pro::Corsair RGB Header 1"] = [4]
 settings["states"]["idle"]["effect"] = "spin"  # damit die Ringe sichtbar drehen
+for row, (state, text) in zip(win.setup_view.rows, [
+        ("ok", "Läuft mit Adminrechten."), ("ok", "Gefunden und kompatibel."), ("ok", "Bereit auf Port 3002."),
+        ("ok", "Gigabyte Control Center / RGB Fusion, Corsair iCUE pausiert. Startet beim Schliessen wieder."),
+        ("warn", "PawnIO ist nicht installiert. RGB-Arbeitsspeicher wird übersprungen."),
+        ("busy", "Suche RGB-Geräte …"), ("pending", "Wartet …")]):
+    row.set(state, text)
+win.setup_view.refresh_headline()
 shot("1_uebersicht")
 win.go(1)
 win.devices_page.populate(zones)

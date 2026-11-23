@@ -30,7 +30,20 @@ proc = subprocess.Popen([str(fake), "-n", "120", "127.0.0.1"], stdin=subprocess.
 time.sleep(1.5)
 assert proc.poll() is None, "Testprogramm läuft nicht"
 
-found = vendor_apps.scan()
+import winreg  # noqa: E402
+
+KEY = r"Software\Microsoft\Windows\CurrentVersion\Uninstall\CS2LocalTestICUE"
+with winreg.CreateKey(winreg.HKEY_CURRENT_USER, KEY) as k:  # nur „installiert“, läuft nicht
+    winreg.SetValueEx(k, "DisplayName", 0, winreg.REG_SZ, "iCUE Testeintrag")
+    winreg.SetValueEx(k, "Publisher", 0, winreg.REG_SZ, "Corsair")
+try:
+    found = vendor_apps.scan()
+finally:
+    winreg.DeleteKey(winreg.HKEY_CURRENT_USER, KEY)
+icue = found.get("Corsair iCUE")
+assert icue and icue["installed"], "installierte Software (Registry) nicht erkannt"
+print("Installiert erkannt: Corsair iCUE (läuft:", bool(icue["processes"] or icue["services"]), ")")
+assert "Corsair iCUE" not in vendor_apps.running({"Corsair iCUE": icue}) or icue["processes"] or icue["services"]
 print("Gefunden:", {k: [p["name"] for p in v["processes"]] for k, v in found.items()})
 gigabyte = found.get("Gigabyte Control Center / RGB Fusion")
 assert gigabyte and any(p["path"].lower() == str(fake).lower() for p in gigabyte["processes"]), "GCC-Test nicht erkannt"
