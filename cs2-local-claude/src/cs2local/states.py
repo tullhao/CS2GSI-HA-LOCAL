@@ -228,16 +228,24 @@ class StateDetector:
         if "bomb_planted" not in self._states:
             self._bomb_synced = False
             return
+        # C4-Countdown vom Spiel (wie im alten Bridge: bomb.countdown, sonst phase_countdowns)
         remaining = None
-        if pc.get("phase") == "bomb" and pc.get("phase_ends_in") not in (None, ""):
-            remaining = _num(pc.get("phase_ends_in"))
-        elif bomb.get("state") == "planted" and bomb.get("countdown") not in (None, ""):
+        # (beim Entschärfen zählen beide die Entschärfzeit herunter – die gehört nicht zur C4-Uhr)
+        if bomb.get("countdown") not in (None, "") and bomb.get("state") in (None, "planted"):
             remaining = _num(bomb.get("countdown"))
-        if remaining is not None and not self._bomb_synced and 0 < remaining <= C4_TIMER:
-            planted = now - (C4_TIMER - remaining)
-            log.info("C4-Uhr nach Spiel-Countdown gestellt (%.2f s Restzeit, Korrektur %+.2f s)",
-                     remaining, planted - self._states["bomb_planted"])
-            self._states["bomb_planted"] = planted
+        elif pc.get("phase") == "bomb" and pc.get("phase_ends_in") not in (None, ""):
+            remaining = _num(pc.get("phase_ends_in"))
+        if remaining is None or not 0 < remaining <= C4_TIMER:
+            return
+        # Jedes Paket liefert eine Schätzung der Legezeit; Pakete mit Verzögerung liegen später.
+        # Die früheste Schätzung ist die genaueste – so bleibt der Takt exakt und springt nicht hin und her.
+        estimate = now - (C4_TIMER - remaining)
+        current = self._states["bomb_planted"]
+        if not self._bomb_synced or current - 2.0 < estimate < current:
+            if not self._bomb_synced:
+                log.info("C4-Uhr nach Spiel-Countdown gestellt (%.2f s Restzeit, Korrektur %+.2f s)",
+                         remaining, estimate - current)
+            self._states["bomb_planted"] = estimate
             self._bomb_synced = True
 
     # ---------------------------------------------------------------- Ausgang

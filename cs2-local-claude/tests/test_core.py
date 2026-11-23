@@ -195,6 +195,16 @@ def test_c4_beat():
     d.update(payload(round={"phase": "live"}), now=102.0)
     d.update(payload(round={"phase": "live", "bomb": "planted"}), now=110.0)  # ohne Countdown: Ankunftszeit
     assert d.snapshot(110.0, s2["states"])["bomb_planted"][0] == 0.0
+    # bomb.countdown in jedem Paket, unterschiedlich verzögert: die früheste Schätzung zählt (Legen bei t=200)
+    d = StateDetector(lambda: s2["options"])
+    for now, delay in ((200.4, 0.4), (201.12, 0.12), (202.5, 0.5), (203.05, 0.05), (204.3, 0.3)):
+        q = payload(round={"phase": "live", "bomb": "planted"})
+        q["bomb"] = {"state": "planted", "countdown": f"{40.0 - (now - delay - 200.0):.3f}"}
+        d.update(q, now=now)
+    assert abs(d.snapshot(205.0, s2["states"])["bomb_planted"][0] - 4.95) < 1e-3
+    q["bomb"] = {"state": "defusing", "countdown": "4.2"}  # Entschärf-Countdown verstellt die C4-Uhr nicht
+    d.update(q, now=205.0)
+    assert abs(d.snapshot(205.0, s2["states"])["bomb_planted"][0] - 4.95) < 1e-3
     print("C4-Takt ok")
 
 
