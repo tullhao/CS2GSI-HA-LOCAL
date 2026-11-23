@@ -1,8 +1,11 @@
 """Übersetzt die rohen GSI-Daten von CS2 in aktive Licht-Zustände und kurze Ereignisse."""
 from __future__ import annotations
 
+import logging
 import threading
 import time
+
+log = logging.getLogger(__name__)
 
 
 def _num(value, default=0):
@@ -48,6 +51,7 @@ class StateDetector:
 
     def _fire(self, sid: str, now: float) -> None:
         self._events[sid] = now
+        log.info("Ereignis: %s", sid)
 
     def _update(self, data: dict, now: float, opts: dict) -> None:
         provider = data.get("provider") or {}
@@ -140,6 +144,9 @@ class StateDetector:
                             and "flashed" not in active and "burning" not in active and bomb != "planted"):
                         self._fire("damage", now)
 
+        if set(active) != set(self._states):
+            detail = f" (Flash {ps.get('flashed')})" if "flashed" in active and "flashed" not in self._states else ""
+            log.info("Situation: %s%s", ", ".join(sorted(active)), detail)
         self._states = {sid: self._states.get(sid, now) for sid in active}
         self._alpha = active
         self._prev = data

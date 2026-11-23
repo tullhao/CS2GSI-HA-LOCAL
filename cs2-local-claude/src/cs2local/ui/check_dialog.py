@@ -92,7 +92,7 @@ class DeviceCheckDialog(QDialog):
         row.addWidget(self.btn_skip)
         row.addStretch(1)
         self.btn_empty = QPushButton("⦸  Nichts angeschlossen")
-        self.btn_empty.setToolTip("An diesem Anschluss hängt nichts. Wird ausgeschaltet, ohne zweiten Versuch.")
+        self.btn_empty.setToolTip("Hier hängt nichts bzw. ist nichts zu sehen. Wird ausgeschaltet, ohne zweiten Versuch.")
         self.btn_empty.clicked.connect(lambda: self._answer("empty"))
         row.addWidget(self.btn_empty)
         self.btn_no = QPushButton("✕  Nein")
@@ -122,7 +122,7 @@ class DeviceCheckDialog(QDialog):
             self.index += 1
             self._show_target()
             return
-        self.btn_empty.setVisible(bool(t["resizable"]))
+        self.btn_empty.setVisible(True)
         self.progress.setValue(self.index)
         self.step.setText(f"Schritt {self.index + 1} von {len(self.targets)}")
         self.icon.type_id = t["type_id"]
