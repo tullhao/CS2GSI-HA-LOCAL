@@ -40,6 +40,7 @@ EFFECTS = {
     "chase": "Lauflicht",
     "spin": "Drehen (je Lüfter)",
     "fade": "Ausblenden",
+    "flash": "Blitz (halten, dann ausblenden)",
 }
 
 # Standardwerte orientieren sich am bisherigen local_pc-Bridge (CT blau, T grün, Teamfarbe gedimmt im Spiel).
@@ -81,8 +82,8 @@ _DEFAULT_STATES = [
      "Die Bombe wurde entschärft: blau blinkend."),
     ("bomb_exploded", "Bombe explodiert", "state", (255, 0, 0), False, "solid", 1.0, 0, 100, 80,
      "Die Bombe ist explodiert: rot bis zur nächsten Runde."),
-    ("flashed", "Geblendet (Flash)", "state", (255, 255, 255), False, "solid", 1.0, 0, 100, 100,
-     "Weiss, so stark wie du geblendet bist."),
+    ("flashed", "Geblendet (Flash)", "event", (255, 255, 255), False, "flash", 1.0, 2.5, 100, 100,
+     "Bei jeder Flashbang: kurz voll weiss, dann langsam ausblenden (wie im alten Bridge)."),
     # --- weitere Spielzustände aus der Game State Integration
     ("bomb_critical", "Bombe kritisch", "state", (255, 0, 0), False, "blink", 6.0, 0, 100, 54,
      "Die letzten 10 Sekunden vor der Explosion: schnelles Stroboskop."),
@@ -120,8 +121,8 @@ CATEGORIES = [
     ("Gesundheit", "Wie es dir geht: wenig Leben, Treffer, Rüstung und Tod.",
      ["low_health", "critical_health", "damage", "death", "dead", "no_armor"],
      [("low_health_threshold", "Wenig Leben ab", " HP", 2, 99), ("critical_health_threshold", "Kritisch ab", " HP", 1, 98)]),
-    ("Kampf", "Was im Gefecht passiert: Kills, Multikills, Flash, Feuer und Smoke.",
-     ["kill", "headshot", "assist", "triple_kill", "quad_kill", "ace", "flashed", "burning", "smoked"], []),
+    ("Kampf", "Was im Gefecht passiert: Flash, Kills, Multikills, Feuer und Smoke.",
+     ["flashed", "kill", "headshot", "assist", "triple_kill", "quad_kill", "ace", "burning", "smoked"], []),
     ("Bombe", "Alles rund um die C4: tragen, gelegt, kritisch, tödlich, entschärft oder explodiert.",
      ["carrying_bomb", "bomb_planted", "bomb_critical", "bomb_lethal", "bomb_defused", "bomb_exploded"], []),
     ("Waffe", "Deine aktive Waffe: Nachladen, knappe Munition, Messer und Granaten.",
@@ -169,7 +170,7 @@ def default_states() -> dict:
 
 def default_settings() -> dict:
     return {
-        "version": 2,
+        "version": 3,
         "cs2_path": None,
         "gsi_token": None,
         "pawnio_declined": False,
@@ -209,6 +210,8 @@ def load_settings() -> dict | None:
     for key, value in data.get("options", {}).items():
         if key in DEFAULT_OPTIONS:
             merged["options"][key] = value
+    if int(data.get("version", 2)) < 3:  # Flash ist jetzt ein Blitz-Ereignis statt Dauerzustand
+        data.get("states", {}).pop("flashed", None)
     for sid, st in data.get("states", {}).items():
         if sid in merged["states"]:
             for key in STATE_KEYS:

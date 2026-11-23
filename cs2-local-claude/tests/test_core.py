@@ -46,10 +46,12 @@ def test_states():
     assert snap(2) == {"team_ct", "freezetime"}, snap(2)
     d.update(payload(state={"health": 25, "flashed": 128}), now=3)
     assert {"low_health", "flashed"} <= snap(3) and "damage" not in snap(3), snap(3)  # Flash statt Treffer
+    d.update(payload(state={"health": 25, "flashed": 1}), now=3.05)  # schwacher Flash zählt trotzdem
+    assert "flashed" in snap(3.05)
     d.update(payload(state={"health": 20}), now=3.1)
     assert "damage" in snap(3.1)
     d.update(payload(state={"health": 25, "flashed": 128}), now=3.15)
-    assert abs(d.snapshot(3, states)["flashed"][1] - 128 / 255) < 1e-6
+    assert d.snapshot(3, states)["flashed"][1] == 1.0  # Blitz immer voll, egal wie stark geblendet
     d.update(payload(state={"health": 10}), now=3.2)
     assert "critical_health" in snap(3.2) and "low_health" not in snap(3.2)
     d.update(payload(state={"health": 10, "round_kills": 1, "round_killhs": 1}), now=4)
@@ -124,11 +126,11 @@ def test_engine():
     d.update(payload(state={"flashed": 255}), now=1)
     frame = e.compose(e.layers(1.0, s), 4, 1.0)
     assert frame == [(255, 255, 255)] * 4, frame
-    d.update(payload(), now=2)
-    frame = e.compose(e.layers(2.0, s), 3, 1.0)
+    d.update(payload(), now=10)  # Blitz (2.5 s) ist vorbei
+    frame = e.compose(e.layers(10.0, s), 3, 1.0)
     assert frame[0] == (0, 0, 89), frame  # CT gedimmt wie im alten Bridge
-    d.update(payload(team="T", round={"phase": "freezetime"}), now=3)
-    frame = e.compose(e.layers(3.0, s), 2, 1.0)
+    d.update(payload(team="T", round={"phase": "freezetime"}), now=11)
+    frame = e.compose(e.layers(11.0, s), 2, 1.0)
     assert frame[0] == (0, 255, 0), frame  # Kaufphase: volle Teamfarbe T
     assert state_color(s["states"]["round_won"], s["states"], "CT") == (0, 0, 255)
     for eff in config.EFFECTS:
@@ -136,6 +138,22 @@ def test_engine():
         out = e.compose([(st, (10, 20, 30), 0.3, 1.0)], 8, 1.0)
         assert len(out) == 8 and all(len(c) == 3 for c in out)
     print("engine ok")
+
+
+def test_flash_effect():
+    from cs2local.effects import render
+    full = render("flash", (255, 255, 255), 1.0, 0.3, 1, 2.5)[0]
+    half = render("flash", (255, 255, 255), 1.0, 1.6, 1, 2.5)[0]
+    gone = render("flash", (255, 255, 255), 1.0, 2.6, 1, 2.5)[0]
+    assert full == (255, 255, 255) and 0 < half[0] < 255 and gone == (0, 0, 0), (full, half, gone)
+    old = {"version": 2, "states": {"flashed": {"effect": "solid", "duration": 0}}}
+    import json
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmp:
+        config.SETTINGS_FILE = Path(tmp) / "s.json"
+        config.SETTINGS_FILE.write_text(json.dumps(old))
+        assert config.load_settings()["states"]["flashed"]["effect"] == "flash"  # alte Einstellung migriert
+    print("Blitz ok")
 
 
 def test_settings_roundtrip():
@@ -183,6 +201,7 @@ if __name__ == "__main__":
     test_states()
     test_new_states()
     test_engine()
+    test_flash_effect()
     test_settings_roundtrip()
     test_setup()
     test_server()

@@ -51,6 +51,10 @@ def render(effect: str, color, speed: float, t: float, n: int, duration: float =
         f = 0.05 + 0.95 * (0.5 - 0.5 * math.cos(2 * math.pi * t * speed))
     elif effect == "flicker":
         f = 0.35 + 0.65 * _noise(t * speed)
+    elif effect == "flash":  # erst voll halten, dann ausblenden
+        length = duration if duration and duration > 0 else 2.5
+        hold = length * 0.27
+        f = 1.0 if t <= hold else max(0.0, 1.0 - (t - hold) / max(0.01, length - hold))
     elif effect == "fade":
         length = duration if duration and duration > 0 else 1.0 / speed
         f = max(0.0, 1.0 - t / length)

@@ -117,8 +117,9 @@ class StateDetector:
                 elif health <= low:
                     active["low_health"] = 1.0
                 flashed = _num(ps.get("flashed"))
-                if flashed > 0:
-                    active["flashed"] = min(1.0, flashed / 255.0)
+                prev_flashed = _num(prev_ps.get("flashed")) if self._prev_own else 0
+                if flashed > 0 and (prev_flashed <= 0 or flashed > prev_flashed + 60):
+                    self._fire("flashed", now)  # jede Flashbang löst den Blitz aus, egal wie stark
                 burning = _num(ps.get("burning"))
                 if burning > 0:
                     active["burning"] = max(0.4, min(1.0, burning / 255.0))
@@ -181,12 +182,11 @@ class StateDetector:
                         self._fire("mvp", now)
                     prev_health = _num(prev_ps.get("health"), None)
                     if (health and prev_health is not None and health < prev_health
-                            and "flashed" not in active and "burning" not in active and bomb != "planted"):
+                            and not _num(ps.get("flashed")) and "burning" not in active and bomb != "planted"):
                         self._fire("damage", now)
 
         if set(active) != set(self._states):
-            detail = f" (Flash {ps.get('flashed')})" if "flashed" in active and "flashed" not in self._states else ""
-            log.info("Situation: %s%s", ", ".join(sorted(active)), detail)
+            log.info("Situation: %s", ", ".join(sorted(active)))
         self._states = {sid: self._states.get(sid, now) for sid in active}
         self._alpha = active
         self._prev = data
