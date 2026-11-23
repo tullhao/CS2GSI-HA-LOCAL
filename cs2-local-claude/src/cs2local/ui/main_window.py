@@ -20,6 +20,7 @@ from ..gsi_server import GSIServer
 from ..rgb_engine import RGBEngine, RGBEngineError
 from ..states import StateDetector
 from . import theme
+from .check_dialog import DeviceCheckDialog
 from .pages import DevicesPage, EffectsPage, ZoneSetupDialog
 from .widgets import LedPreview
 
@@ -241,6 +242,7 @@ class MainWindow(QMainWindow):
                                        "reagieren soll, oder wähle einzelne Zonen."))
         self.devices_page = DevicesPage(self.settings, self._zone_live_frame)
         self.devices_page.setup_requested.connect(self._setup_zone)
+        self.devices_page.check_requested.connect(self._run_check)
         self.devices_page.test_requested.connect(self._test_devices)
         self.devices_page.rescan_requested.connect(self._restart_rgb)
         lay.addWidget(self.devices_page)
@@ -486,7 +488,19 @@ class MainWindow(QMainWindow):
             self.card_rgb.set("warn", "Bereit, aber keine RGB-Geräte gefunden. Adminrechte? Andere RGB-Software offen?")
         known = {z["key"] for z in zones}
         self.settings["devices"] = [k for k in self.settings["devices"] if k in known]
+        self.rgb.methods = dict(self.settings.get("device_methods", {}))
         self.devices_page.populate(zones)
+        if zones and not self.settings.get("device_check_done"):
+            answer = QMessageBox.question(
+                self, "Geräte-Check",
+                f"{devices} RGB-Geräte gefunden.\n\nSoll das Tool jetzt prüfen, was wirklich leuchtet? Jedes Gerät "
+                "und jeder Anschluss blinkt kurz türkis, du bestätigst mit einem Klick. Was nicht reagiert, wird "
+                "ausgeschaltet. Dauert etwa eine Minute.")
+            if answer == QMessageBox.Yes:
+                self.go(1)
+                QTimer.singleShot(200, self._run_check)
+            else:
+                self.settings["device_check_done"] = True
 
     # ================================================================ CS2
     def _set_cs2(self, path: Path | None) -> None:
@@ -530,6 +544,20 @@ class MainWindow(QMainWindow):
         self.card_gsi.set("ok", text)
 
     # ================================================================ Geräte-Aktionen
+    def _run_check(self) -> None:
+        if not self.rgb_ready:
+            QMessageBox.information(self, config.APP_NAME, "Die RGB-Engine ist noch nicht bereit.")
+            return
+        if self.engine.busy:
+            QMessageBox.information(self, config.APP_NAME, BUSY_MSG)
+            return
+        dialog = DeviceCheckDialog(self.rgb, self.settings, self.rgb.zones(), self)
+        accepted = dialog.exec() == QDialog.Accepted
+        self.devices_page.populate(self.rgb.zones())
+        if accepted:
+            config.save_settings(self.settings)
+            QMessageBox.information(self, "Geräte-Check fertig", dialog.summary())
+
     def _setup_zone(self, key: str, zone: str, leds_max: int) -> None:
         if self.engine.busy:
             QMessageBox.information(self, config.APP_NAME, BUSY_MSG)

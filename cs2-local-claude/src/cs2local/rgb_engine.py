@@ -37,6 +37,9 @@ class RGBEngine:
         self._zones: dict = {}    # "Gerät::Zone" -> (Geräte-Schlüssel, Device, Zone)
         self._saved: dict = {}    # Geräte-Schlüssel -> (Modus, {Zonenindex: Farben})
         self._direct: set = set()  # Geräte im Direktmodus
+        self.methods: dict = {}    # Geräte-Schlüssel -> "direct" oder "static"
+        self._static: dict = {}    # Geräte-Schlüssel -> Static-Modus (zweite Methode)
+        self._static_sent: dict = {}
         self._last: dict = {}
         self._log_handle = None
         atexit.register(self._kill)
@@ -243,6 +246,11 @@ class RGBEngine:
                     self._saved[dkey] = (dev.index, mode, colors)
                 if dkey in self._direct:
                     continue
+                if self.methods.get(dkey) == "static" and dev.static_mode() is not None:
+                    self._static[dkey] = dev.static_mode()
+                    self._direct.add(dkey)
+                    log.info("%s: Steuerung über Modus „%s“", dkey, self._static[dkey].name)
+                    continue
                 direct = dev.mode_by_name("Direct")
                 if direct is not None:
                     self.client.update_mode(dev.index, direct)
@@ -257,6 +265,20 @@ class RGBEngine:
             return
         entry = self._zones.get(key)
         if not entry:
+            return
+        dkey = entry[0]
+        if dkey in self._static:  # zweite Methode: ganze Geräte-Farbe über den Static-Modus
+            if not colors:
+                return
+            avg = tuple(sum(c[i] for c in colors) // len(colors) for i in range(3))
+            now = time.monotonic()
+            last_color, last_time = self._static_sent.get(dkey, (None, 0.0))
+            if avg == last_color or now - last_time < 0.12:
+                return
+            with self.lock:
+                self.client.update_mode(entry[1].index, self._static[dkey].with_color(avg))
+            self._static_sent[dkey] = (avg, now)
+            self._last[key] = frame
             return
         with self.lock:
             self.client.update_zone_leds(entry[1].index, entry[2].index, colors)
@@ -278,7 +300,35 @@ class RGBEngine:
                         log.warning("Zustand von %s nicht wiederherstellbar", dkey)
             self._saved.clear()
             self._direct.clear()
+            self._static.clear()
+            self._static_sent.clear()
             self._last.clear()
+
+    def device_key(self, key: str) -> str | None:
+        entry = self._zones.get(key)
+        return entry[0] if entry else None
+
+    def has_static(self, key: str) -> bool:
+        entry = self._zones.get(key)
+        return bool(entry and entry[1].static_mode() is not None)
+
+    def blink(self, keys, stop: threading.Event, color=(0, 255, 200)) -> None:
+        """Lässt Zonen blinken, bis stop gesetzt wird (für den Geräte-Check). Stellt danach wieder her."""
+        with self.lock:
+            self.prepare(keys)
+        on = False
+        try:
+            while not stop.is_set():
+                on = not on
+                for key in keys:
+                    n = self.led_count(key)
+                    if n:
+                        with self.lock:
+                            self.set_zone(key, [color if on else (0, 0, 0)] * n)
+                stop.wait(0.45)
+        finally:
+            with self.lock:
+                self.restore()
 
     def test(self, keys) -> None:
         """Lässt die gewählten Zonen dreimal türkis aufblinken."""

@@ -78,5 +78,7 @@ QSlider::sub-page:horizontal {{ background: {ACCENT}; border-radius: 3px; }}
 QScrollBar:vertical {{ background: transparent; width: 10px; }}
 QScrollBar::handle:vertical {{ background: {BORDER}; border-radius: 5px; min-height: 30px; }}
 QScrollBar::add-line, QScrollBar::sub-line {{ height: 0; }}
+QProgressBar {{ background: {SURFACE_2}; border: none; border-radius: 3px; }}
+QProgressBar::chunk {{ background: {ACCENT}; border-radius: 3px; }}
 QToolTip {{ background: {SURFACE_2}; color: {TEXT}; border: 1px solid {BORDER}; padding: 6px; }}
 """

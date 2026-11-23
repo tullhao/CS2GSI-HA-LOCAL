@@ -33,6 +33,7 @@ SET_CUSTOM_MODE = 1100
 UPDATE_MODE = 1101
 
 COLOR_MODE_PER_LED = 1
+COLOR_MODE_SPECIFIC = 2
 
 DEVICE_TYPES = {
     0: "Mainboard", 1: "Arbeitsspeicher", 2: "Grafikkarte", 3: "Kühlung", 4: "LED-Streifen", 5: "Tastatur",
@@ -53,6 +54,14 @@ class Mode:
     name: str
     color_mode: int
     raw: bytes  # Moduseintrag exakt wie empfangen, für UPDATE_MODE unverändert zurückgeschickt
+    num_colors: int = 0
+
+    def with_color(self, rgb) -> "Mode":
+        """Gleicher Modus, aber alle Modusfarben auf rgb gesetzt (für Geräte ohne Direktsteuerung)."""
+        n = max(1, self.num_colors)
+        head = self.raw[:len(self.raw) - (2 + 4 * self.num_colors)]
+        raw = head + struct.pack("<H", n) + pack_color(rgb) * n
+        return Mode(self.index, self.name, self.color_mode, raw, n)
 
 
 @dataclass
@@ -83,6 +92,14 @@ class Device:
 
     def zone_colors(self, zone: Zone) -> list:
         return self.colors[zone.start:zone.start + zone.leds_count]
+
+    def static_mode(self) -> Mode | None:
+        """Ein Modus mit einer frei wählbaren Farbe (meist „Static“), als zweite Methode."""
+        candidates = [m for m in self.modes if m.color_mode == COLOR_MODE_SPECIFIC and m.num_colors >= 1]
+        for m in candidates:
+            if m.name.strip().lower() in ("static", "statisch", "fixed"):
+                return m
+        return candidates[0] if candidates else None
 
     def mode_by_name(self, name: str) -> Mode | None:
         for mode in self.modes:
@@ -145,8 +162,9 @@ def parse_device(index: int, body: bytes, version: int) -> Device:
             r.u32()       # brightness
         r.u32()           # direction
         color_mode = r.u32()
-        r.take(4 * r.u16())  # Modusfarben
-        modes.append(Mode(i, mode_name, color_mode, body[start:r.pos]))
+        num_colors = r.u16()
+        r.take(4 * num_colors)  # Modusfarben
+        modes.append(Mode(i, mode_name, color_mode, body[start:r.pos], num_colors))
     num_zones = r.u16()
     zones = []
     led_start = 0

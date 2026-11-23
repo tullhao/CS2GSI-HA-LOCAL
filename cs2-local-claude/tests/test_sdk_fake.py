@@ -53,7 +53,7 @@ class FakeDevice:
 class FakeServer:
     def __init__(self):
         self.devices = [
-            FakeDevice("Board", [["ARGB 1", 0, 300, 0], ["Logo", 1, 1, 1]], [("Static", 0), ("Direct", 1)]),
+            FakeDevice("Board", [["ARGB 1", 0, 300, 0], ["Logo", 1, 1, 1]], [("Static", 2), ("Direct", 1)]),
             FakeDevice("Keyboard", [["Keys", 92, 92, 92]], [("Wave", 0), ("Custom", 1)]),
         ]
         self.sock = socket.socket()
@@ -110,6 +110,7 @@ class FakeServer:
                     size_pkt, idx = struct.unpack("<Ii", body[:8])
                     assert size_pkt == len(body)
                     self.devices[dev].active = idx
+                    self.last_mode = body
                 elif pkt == SET_CUSTOM_MODE:
                     self.devices[dev].active = len(self.devices[dev].modes) - 1
                 elif pkt == RESIZE_ZONE:
@@ -180,4 +181,20 @@ client2 = SDKClient("127.0.0.1", srv.port)
 client2.connect()
 assert client2.controller_count() == 2
 print("Abriss erkannt, Neuverbindung ok")
+# Zweite Methode (Static-Modus) über die Engine
+from cs2local.rgb_engine import RGBEngine  # noqa: E402
+from cs2local.sdk_client import pack_color  # noqa: E402
+
+eng = RGBEngine(srv.port)
+eng.client = client2
+eng._load_devices()  # noqa: SLF001
+assert eng.has_static("Board::Logo") and eng.device_key("Board::Logo") == "Board"
+eng.methods = {"Board": "static"}
+eng.prepare(["Board::Logo"])
+eng.set_zone("Board::Logo", [(10, 20, 30)])
+time.sleep(0.2)
+assert client2.device(0).active_mode == 0, "Static-Modus nicht gesetzt"
+assert srv.last_mode.endswith(pack_color((10, 20, 30))), "Farbe nicht im Static-Modus"
+eng.restore()
+print("Static-Methode ok")
 print("SDK-CLIENT OK")

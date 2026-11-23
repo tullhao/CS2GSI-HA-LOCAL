@@ -157,6 +157,8 @@ class DeviceCard(QFrame):
         title = _label(device, "CardHeading")
         vendor = zones[0].get("vendor") or ""
         sub = zones[0]["type"] + (f"  ·  {vendor}" if vendor and vendor.lower() not in device.lower() else "")
+        if settings.get("device_methods", {}).get(device) == "static":
+            sub += "  ·  einfarbige Steuerung"
         col.addWidget(title)
         col.addWidget(_label(sub, "Muted"))
         head.addLayout(col, 1)
@@ -261,6 +263,7 @@ class DeviceCard(QFrame):
 
 
 class DevicesPage(QWidget):
+    check_requested = Signal()
     selection_changed = Signal()
     setup_requested = Signal(str, str, int)
     test_requested = Signal(list)
@@ -277,6 +280,12 @@ class DevicesPage(QWidget):
         bar = QHBoxLayout()
         self.summary = _label("Warte auf die RGB-Engine …", "Muted")
         bar.addWidget(self.summary, 1)
+        check = QPushButton("✓  Geräte-Check")
+        check.setObjectName("Primary")
+        check.setToolTip("Jedes Gerät und jeder Anschluss blinkt nacheinander, du bestätigst per Klick. "
+                         "Was nicht reagiert, wird ausgeschaltet.")
+        check.clicked.connect(self.check_requested.emit)
+        bar.addWidget(check)
         for text, slot in (("Alle", lambda: self._set_all(True)), ("Keine", lambda: self._set_all(False)),
                            ("Geräte neu suchen", self.rescan_requested.emit)):
             btn = QPushButton(text)
