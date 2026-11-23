@@ -37,6 +37,7 @@ EFFECTS = {
     "pulse": "Pulsieren",
     "flicker": "Flackern",
     "chase": "Lauflicht",
+    "spin": "Drehen (je Lüfter)",
     "fade": "Ausblenden",
 }
 
@@ -103,6 +104,20 @@ CATEGORIES = [
 ]
 STATE_KEYS = ("enabled", "color", "team_color", "effect", "speed", "duration", "intensity", "priority")
 
+# Was an einem ARGB-Anschluss hängen kann: Name, LEDs pro Stück, Art (fan = Lüfter-Ringe, strip = Streifen)
+HARDWARE_PRESETS = [
+    ("Corsair LL120 / LL140", 16, "fan"),
+    ("Corsair QL120 / QL140", 34, "fan"),
+    ("Corsair SP120 / SP140 RGB Elite", 8, "fan"),
+    ("Corsair AF120 / AF140 RGB Elite", 8, "fan"),
+    ("Corsair ML120 / ML140 RGB", 4, "fan"),
+    ("Corsair HD120 RGB", 12, "fan"),
+    ("Corsair LED-Streifen (RGB Strip)", 10, "strip"),
+    ("ARGB-Lüfter allgemein", 12, "fan"),
+    ("ARGB-Streifen allgemein", 30, "strip"),
+    ("Eigene Angabe", 10, "fan"),
+]
+
 DEFAULT_OPTIONS = {
     "brightness": 100,
     "fps": 20,
@@ -133,6 +148,8 @@ def default_settings() -> dict:
         "pawnio_declined": False,
         "devices": [],
         "zone_sizes": {},
+        "zone_layout": {},
+        "fans_off": {},
         "states": default_states(),
         "options": dict(DEFAULT_OPTIONS),
     }
@@ -153,6 +170,8 @@ def load_settings() -> dict | None:
     merged["pawnio_declined"] = bool(data.get("pawnio_declined", False))
     merged["devices"] = [str(k) for k in data.get("devices", [])]
     merged["zone_sizes"] = {str(k): int(v) for k, v in data.get("zone_sizes", {}).items()}
+    merged["zone_layout"] = {str(k): dict(v) for k, v in data.get("zone_layout", {}).items() if isinstance(v, dict)}
+    merged["fans_off"] = {str(k): [int(i) for i in v] for k, v in data.get("fans_off", {}).items()}
     for key, value in data.get("options", {}).items():
         if key in DEFAULT_OPTIONS:
             merged["options"][key] = value

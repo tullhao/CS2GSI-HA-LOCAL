@@ -5,7 +5,7 @@ import logging
 import threading
 import time
 
-from .effects import blend, render, scale
+from .effects import blend, render_segmented, scale
 
 log = logging.getLogger(__name__)
 
@@ -19,6 +19,27 @@ def state_color(cfg: dict, states: dict, team: str | None) -> tuple:
     else:
         base = cfg["color"]
     return scale(base, max(0, min(100, float(cfg.get("intensity", 100)))) / 100.0)
+
+
+def apply_fan_mask(frame: list, key: str, settings: dict) -> list:
+    """Abgewählte Lüfter einer Zone bleiben dunkel."""
+    off = settings.get("fans_off", {}).get(key)
+    layout = settings.get("zone_layout", {}).get(key)
+    if not off or not layout:
+        return frame
+    per = int(layout.get("per", 0))
+    if per <= 0:
+        return frame
+    frame = list(frame)
+    for i in off:
+        for j in range(i * per, min(len(frame), (i + 1) * per)):
+            frame[j] = (0, 0, 0)
+    return frame
+
+
+def fan_size(key: str, settings: dict) -> int:
+    layout = settings.get("zone_layout", {}).get(key) or {}
+    return int(layout.get("per", 0)) if layout.get("kind") == "fan" else 0
 
 
 class LightEngine:
@@ -82,18 +103,23 @@ class LightEngine:
         return out
 
     @staticmethod
-    def compose(layers, n: int, brightness: float) -> list:
+    def compose(layers, n: int, brightness: float, seg: int = 0) -> list:
         frame = [(0, 0, 0)] * n
         start = 0
         for i, layer in enumerate(layers):  # ab der obersten deckenden Ebene rechnen
             if layer[3] >= 1.0:
                 start = i
         for cfg, color, t, alpha in layers[start:]:
-            cols = render(cfg["effect"], color, cfg.get("speed", 1.0), t, n, cfg.get("duration", 0))
+            cols = render_segmented(cfg["effect"], color, cfg.get("speed", 1.0), t, n, cfg.get("duration", 0), seg)
             frame = [blend(b, c, alpha) for b, c in zip(frame, cols)]
         if brightness < 1.0:
             frame = [scale(c, brightness) for c in frame]
         return frame
+
+    def zone_frame(self, layers, key: str, n: int, brightness: float, settings: dict) -> list:
+        """Farben einer Zone: Effekte (Drehen je Lüfter) plus ausgeschaltete Lüfter dunkel."""
+        frame = self.compose(layers, n, brightness, fan_size(key, settings))
+        return apply_fan_mask(frame, key, settings)
 
     def _frame(self, now: float, prepared: set, preview) -> None:
         settings = self.get_settings()
@@ -108,7 +134,7 @@ class LightEngine:
         for key in keys:
             n = self.rgb.led_count(key)
             if n:
-                self.rgb.set_zone(key, self.compose(layers, n, brightness))
+                self.rgb.set_zone(key, self.zone_frame(layers, key, n, brightness, settings))
         top = layers[-1][0]["name"] if layers else None
         self.status = {"top": top, "color": self.compose(layers, 1, brightness)[0], "error": None}
 

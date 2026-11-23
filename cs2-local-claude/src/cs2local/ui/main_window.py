@@ -9,7 +9,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QObject, Qt, QTimer, Signal
 from PySide6.QtWidgets import (
-    QButtonGroup, QFileDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QMainWindow, QMessageBox, QPushButton,
+    QButtonGroup, QDialog, QFileDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QMainWindow, QMessageBox, QPushButton,
     QScrollArea, QStackedWidget, QVBoxLayout, QWidget,
 )
 
@@ -20,7 +20,7 @@ from ..gsi_server import GSIServer
 from ..rgb_engine import RGBEngine, RGBEngineError
 from ..states import StateDetector
 from . import theme
-from .pages import DevicesPage, EffectsPage
+from .pages import DevicesPage, EffectsPage, ZoneSetupDialog
 from .widgets import LedPreview
 
 log = logging.getLogger(__name__)
@@ -239,8 +239,8 @@ class MainWindow(QMainWindow):
         w, lay = self._page()
         lay.addWidget(_title("Geräte", "Alle RGB-Geräte, die dein PC gefunden hat. Schalte ein, was auf CS2 "
                                        "reagieren soll, oder wähle einzelne Zonen."))
-        self.devices_page = DevicesPage(self.settings)
-        self.devices_page.resize_requested.connect(self._resize_zone)
+        self.devices_page = DevicesPage(self.settings, self._zone_live_frame)
+        self.devices_page.setup_requested.connect(self._setup_zone)
         self.devices_page.test_requested.connect(self._test_devices)
         self.devices_page.rescan_requested.connect(self._restart_rgb)
         lay.addWidget(self.devices_page)
@@ -530,18 +530,38 @@ class MainWindow(QMainWindow):
         self.card_gsi.set("ok", text)
 
     # ================================================================ Geräte-Aktionen
-    def _resize_zone(self, key: str, size: int) -> None:
-        if self.rgb.led_count(key) == size:
-            return
+    def _setup_zone(self, key: str, zone: str, leds_max: int) -> None:
         if self.engine.busy:
             QMessageBox.information(self, config.APP_NAME, BUSY_MSG)
             return
+        dialog = ZoneSetupDialog(zone, self.settings.get("zone_layout", {}).get(key), leds_max, self)
+        if dialog.exec() != QDialog.Accepted:
+            return
+        layout = dialog.result_layout()
         try:
-            self.rgb.resize(key, size)
-            self.settings.setdefault("zone_sizes", {})[key] = size
-            self.devices_page.update_zone(key, self.rgb.led_count(key))
+            self.rgb.resize(key, layout["total"])
         except Exception as exc:  # noqa: BLE001
+            log.exception("LED-Anzahl setzen fehlgeschlagen")
             QMessageBox.warning(self, config.APP_NAME, f"LED-Anzahl konnte nicht gesetzt werden: {exc}")
+            return
+        self.settings.setdefault("zone_layout", {})[key] = layout
+        self.settings.setdefault("zone_sizes", {})[key] = layout["total"]
+        self.settings.setdefault("fans_off", {}).pop(key, None)
+        if layout["total"] > 0 and key not in self.settings["devices"]:
+            self.settings["devices"].append(key)
+        elif layout["total"] == 0 and key in self.settings["devices"]:
+            self.settings["devices"].remove(key)
+        config.save_settings(self.settings)
+        self.devices_page.populate(self.rgb.zones())
+
+    def _zone_live_frame(self, key: str, n: int):
+        """Aktuelle Farben einer Zone für die Lüfter-Ringe (gedimmt, solange Live nicht läuft)."""
+        now = time.monotonic()
+        brightness = max(0.0, min(1.0, float(self.settings["options"]["brightness"]) / 100.0))
+        frame = self.engine.zone_frame(self.engine.layers(now, self.settings), key, n, brightness, self.settings)
+        if not self.engine.running:
+            frame = [tuple(int(v * 0.6) for v in c) for c in frame]
+        return frame
 
     def _run_task(self, name: str, fn) -> None:
         def work():

@@ -4,13 +4,13 @@ from __future__ import annotations
 from PySide6.QtCore import QPoint, QRect, QSize, Qt, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
-    QButtonGroup, QColorDialog, QComboBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QLayout, QPushButton, QSlider,
+    QButtonGroup, QColorDialog, QComboBox, QDialog, QDialogButtonBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QLayout, QPushButton, QSlider,
     QSpinBox, QStackedWidget, QVBoxLayout, QWidget,
 )
 
 from .. import config
 from ..engine import state_color
-from .widgets import ColorSwatch, DeviceIcon, LedPreview, ToggleSwitch, ZoneChip, state_preview_source
+from .widgets import ColorSwatch, DeviceIcon, FanRings, LedPreview, ToggleSwitch, ZoneChip, state_preview_source
 
 
 # ------------------------------------------------------------------------------------------- Hilfen
@@ -135,10 +135,11 @@ class ResponsiveGrid(QWidget):
 # ------------------------------------------------------------------------------------------- Geräte
 class DeviceCard(QFrame):
     selection_changed = Signal(str, bool)
-    resize_requested = Signal(str, int)
+    setup_requested = Signal(str, str, int)
+    fans_changed = Signal(str, list)
     test_requested = Signal(list)
 
-    def __init__(self, device: str, zones: list, selected: set):
+    def __init__(self, device: str, zones: list, selected: set, settings: dict, frame_fn=None):
         super().__init__()
         self.setObjectName("Card")
         self.zones = zones
@@ -171,32 +172,49 @@ class DeviceCard(QFrame):
             chip = ZoneChip(z["key"], z["zone"], z["leds"])
             chip.setChecked(z["key"] in selected)
             chip.setEnabled(z["leds"] > 0)
-            chip.setToolTip("Zone ohne LEDs. Trag unten die Anzahl LEDs ein." if z["leds"] == 0 else "")
+            chip.setToolTip("Noch nicht eingerichtet. Unten auf „Einrichten“ klicken." if z["leds"] == 0 else "")
             chip.toggled_key.connect(self._chip_toggled)
             flow.addWidget(chip)
             self.chips[z["key"]] = chip
         lay.addWidget(chips_box)
 
         resizable = [z for z in zones if z["resizable"]]
-        if resizable:
+        self.rings: dict = {}
+        for z in resizable:
+            layout = settings.get("zone_layout", {}).get(z["key"])
             box = QFrame()
             box.setObjectName("Inset")
-            grid = QGridLayout(box)
-            grid.setContentsMargins(12, 10, 12, 10)
-            grid.setHorizontalSpacing(12)
-            hint = _label("Anschlüsse für LED-Streifen und Lüfter: Trag ein, wie viele LEDs dranhängen "
-                          "(steht auf der Verpackung).", "Muted", wrap=True)
-            grid.addWidget(hint, 0, 0, 1, 3)
-            for row, z in enumerate(resizable, start=1):
-                spin = QSpinBox()
-                spin.setRange(z["leds_min"], z["leds_max"] or 300)
-                spin.setValue(z["leds"])
-                spin.setSuffix(" LEDs")
-                spin.setFixedWidth(110)
-                spin.editingFinished.connect(lambda k=z["key"], s=spin: self.resize_requested.emit(k, s.value()))
-                grid.addWidget(_label(z["zone"]), row, 0)
-                grid.addWidget(spin, row, 1)
-            grid.setColumnStretch(2, 1)
+            bl = QVBoxLayout(box)
+            bl.setContentsMargins(14, 12, 14, 12)
+            bl.setSpacing(10)
+            row = QHBoxLayout()
+            col = QVBoxLayout()
+            col.setSpacing(2)
+            col.addWidget(_label(z["zone"], "CardHeading"))
+            if layout:
+                text = f"{layout['count']} × {layout['name']}  ·  {z['leds']} LEDs"
+            elif z["leds"]:
+                text = f"{z['leds']} LEDs, Hardware nicht angegeben"
+            else:
+                text = "Nicht eingerichtet: Was hängt an diesem Anschluss?"
+            col.addWidget(_label(text, "Muted", wrap=True))
+            row.addLayout(col, 1)
+            setup = QPushButton("Ändern …" if layout else "Einrichten …")
+            setup.setObjectName("Small" if layout else "Primary")
+            setup.clicked.connect(lambda _=False, k=z["key"], n=z["zone"], hi=z["leds_max"]:
+                                  self.setup_requested.emit(k, n, hi))
+            row.addWidget(setup, 0, Qt.AlignTop)
+            bl.addLayout(row)
+            if layout and layout.get("count", 0) > 0:
+                rings = FanRings(layout["count"], layout["per"], layout.get("kind", "fan"),
+                                 settings.get("fans_off", {}).get(z["key"], []))
+                rings.setToolTip("Klick auf einen Lüfter schaltet ihn für CS2 an oder aus")
+                rings.changed.connect(lambda off, k=z["key"]: self.fans_changed.emit(k, off))
+                if frame_fn:
+                    rings.set_source(lambda n, k=z["key"]: frame_fn(k, n))
+                bl.addWidget(rings)
+                bl.addWidget(_label("Klick auf einen Lüfter, um ihn ein- oder auszuschalten.", "Muted"))
+                self.rings[z["key"]] = rings
             lay.addWidget(box)
 
         lay.addStretch(1)
@@ -244,13 +262,14 @@ class DeviceCard(QFrame):
 
 class DevicesPage(QWidget):
     selection_changed = Signal()
-    resize_requested = Signal(str, int)
+    setup_requested = Signal(str, str, int)
     test_requested = Signal(list)
     rescan_requested = Signal()
 
-    def __init__(self, settings: dict):
+    def __init__(self, settings: dict, frame_fn=None):
         super().__init__()
         self.settings = settings
+        self.frame_fn = frame_fn
         self.cards: dict = {}
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
@@ -279,18 +298,21 @@ class DevicesPage(QWidget):
         for z in zones:
             by_device.setdefault(z["device"], []).append(z)
         for device, dz in by_device.items():
-            card = DeviceCard(device, dz, selected)
+            card = DeviceCard(device, dz, selected, self.settings, self.frame_fn)
             card.selection_changed.connect(self._on_select)
-            card.resize_requested.connect(self.resize_requested.emit)
+            card.setup_requested.connect(self.setup_requested.emit)
+            card.fans_changed.connect(self._on_fans)
             card.test_requested.connect(self.test_requested.emit)
             self.cards[device] = card
         self.grid.set_widgets(list(self.cards.values()))
         self.empty.setVisible(not by_device)
         self._update_summary()
 
-    def update_zone(self, key: str, leds: int) -> None:
-        for card in self.cards.values():
-            card.set_leds(key, leds)
+    def _on_fans(self, key: str, off: list) -> None:
+        if off:
+            self.settings.setdefault("fans_off", {})[key] = off
+        else:
+            self.settings.setdefault("fans_off", {}).pop(key, None)
 
     def _on_select(self, key: str, on: bool) -> None:
         devices = self.settings["devices"]
@@ -313,7 +335,7 @@ class DevicesPage(QWidget):
 
 
 # ------------------------------------------------------------------------------------------- Effekte
-SPEED_EFFECTS = {"blink", "pulse", "flicker", "chase"}
+SPEED_EFFECTS = {"blink", "pulse", "flicker", "chase", "spin"}
 
 
 class StateCard(QFrame):
@@ -605,3 +627,79 @@ class EffectsPage(QWidget):
         for card in self.cards:
             card.reload()
         self.changed.emit()
+
+
+# ------------------------------------------------------------------------------------------- Einrichten
+class ZoneSetupDialog(QDialog):
+    """Was hängt an einem ARGB-Anschluss? Modell und Anzahl wählen, LEDs werden ausgerechnet."""
+
+    def __init__(self, zone: str, layout: dict | None, leds_max: int, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(f"{zone} einrichten")
+        self.setMinimumWidth(460)
+        self.leds_max = leds_max or 1000
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(22, 20, 22, 18)
+        lay.setSpacing(14)
+        lay.addWidget(_label(f"Was hängt an „{zone}“?", "CardHeading"))
+        lay.addWidget(_label("Die Hardware meldet das nicht selbst (auch iCUE fragt danach). Wähl das Modell und "
+                             "die Anzahl, die LEDs rechnet das Tool aus. Bei mehreren Lüftern an einem Hub: "
+                             "alle zusammen zählen.", "Muted", wrap=True))
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(12)
+        grid.setVerticalSpacing(10)
+        self.model = QComboBox()
+        for name, per, kind in config.HARDWARE_PRESETS:
+            self.model.addItem(f"{name}  ({per} LEDs)" if name != "Eigene Angabe" else name, (name, per, kind))
+        self.count = QSpinBox()
+        self.count.setRange(0, 12)
+        self.per = QSpinBox()
+        self.per.setRange(1, 300)
+        self.per.setSuffix(" LEDs pro Stück")
+        self.total = _label("", "CardHeading")
+        grid.addWidget(_label("Modell"), 0, 0)
+        grid.addWidget(self.model, 0, 1)
+        grid.addWidget(_label("Anzahl"), 1, 0)
+        grid.addWidget(self.count, 1, 1)
+        grid.addWidget(_label("LEDs"), 2, 0)
+        grid.addWidget(self.per, 2, 1)
+        grid.addWidget(_label("Zusammen"), 3, 0)
+        grid.addWidget(self.total, 3, 1)
+        lay.addLayout(grid)
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.button(QDialogButtonBox.Ok).setText("Übernehmen")
+        buttons.button(QDialogButtonBox.Ok).setObjectName("Primary")
+        buttons.button(QDialogButtonBox.Cancel).setText("Abbrechen")
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        lay.addWidget(buttons)
+        self.model.currentIndexChanged.connect(self._model_changed)
+        self.count.valueChanged.connect(self._update)
+        self.per.valueChanged.connect(self._update)
+        if layout:
+            idx = max(0, self.model.findText(layout.get("name", ""), Qt.MatchStartsWith))
+            self.model.setCurrentIndex(idx)
+            self.count.setValue(int(layout.get("count", 1)))
+            self.per.setValue(int(layout.get("per", 10)))
+        else:
+            self.count.setValue(1)
+            self._model_changed()
+        self._update()
+
+    def _model_changed(self, *_):
+        name, per, _kind = self.model.currentData()
+        self.per.setValue(per)
+        self.per.setEnabled(name == "Eigene Angabe" or "allgemein" in name)
+        self._update()
+
+    def _update(self, *_):
+        total = self.count.value() * self.per.value()
+        ok = total <= self.leds_max
+        self.total.setText(f"{total} LEDs" + ("" if ok else f"  (max. {self.leds_max})"))
+        self.total.setStyleSheet("" if ok else "color: #ff5c5c;")
+
+    def result_layout(self) -> dict:
+        name, _per, kind = self.model.currentData()
+        count, per = self.count.value(), self.per.value()
+        return {"name": name, "kind": kind, "count": count, "per": per,
+                "total": min(count * per, self.leds_max)}

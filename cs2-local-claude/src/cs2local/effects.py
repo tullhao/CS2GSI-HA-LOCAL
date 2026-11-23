@@ -36,9 +36,9 @@ def render(effect: str, color, speed: float, t: float, n: int, duration: float =
     if n <= 0:
         return []
     speed = max(0.05, float(speed or 1.0))
-    if effect == "chase":
+    if effect in ("chase", "spin"):  # spin: kurzer Schweif, die Engine rechnet ihn pro Lüfter
         pos = (t * speed * n) % n
-        width = max(1.5, n / 5.0)
+        width = max(1.5, n / (3.0 if effect == "spin" else 5.0))
         out = []
         for i in range(n):
             d = abs(i - pos)
@@ -57,3 +57,11 @@ def render(effect: str, color, speed: float, t: float, n: int, duration: float =
     else:  # solid
         f = 1.0
     return [scale(color, f)] * n
+
+
+def render_segmented(effect: str, color, speed: float, t: float, n: int, duration: float = 0.0, seg: int = 0) -> list:
+    """Wie render(), aber „Drehen“ läuft in jedem Lüfter (Abschnitt von seg LEDs) einzeln im Kreis."""
+    if effect == "spin" and 0 < seg < n:
+        ring = render(effect, color, speed, t, seg, duration)
+        return [ring[i % seg] for i in range(n)]
+    return render(effect, color, speed, t, n, duration)

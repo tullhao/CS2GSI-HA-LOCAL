@@ -7,7 +7,7 @@ from PySide6.QtCore import QPointF, QRectF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QBrush, QColor, QLinearGradient, QPainter, QPainterPath, QPen, QRadialGradient
 from PySide6.QtWidgets import QAbstractButton, QSizePolicy, QWidget
 
-from ..effects import render
+from ..effects import render, render_segmented
 from . import theme
 
 
@@ -154,15 +154,15 @@ def state_preview_source(cfg: dict, color_fn):
             t = elapsed % cycle
             if t > duration:  # kurze Pause, gedimmt
                 return [tuple(int(v * 0.08) for v in color)] * n
-            return render(effect, color, speed, t, n, duration)
+            return render_segmented(effect, color, speed, t, n, duration, 6)
         if sid == "bomb_planted":  # 40 Sekunden Countdown im Zeitraffer (10 s)
             age = (elapsed % 10.0) * 4.0
             t = age + 1.5 * age * age / 40.0
-            return render(effect, color, speed, t, n, duration)
+            return render_segmented(effect, color, speed, t, n, duration, 6)
         if sid == "flashed":  # Blendung klingt ab
             level = max(0.0, 1.0 - (elapsed % 3.0) / 2.4)
-            return [tuple(int(v * level) for v in c) for c in render(effect, color, speed, elapsed, n)]
-        return render(effect, color, speed, elapsed, n, duration)
+            return [tuple(int(v * level) for v in c) for c in render_segmented(effect, color, speed, elapsed, n, 0, 6)]
+        return render_segmented(effect, color, speed, elapsed, n, duration, 6)
 
     return source
 
@@ -317,3 +317,98 @@ class ZoneChip(QAbstractButton):
         p.drawEllipse(QPointF(15, self.height() / 2), 4, 4)
         p.setPen(QColor(theme.TEXT if on else theme.MUTED))
         p.drawText(QRectF(26, 0, self.width() - 30, self.height()), Qt.AlignVCenter | Qt.AlignLeft, self._label())
+
+
+# ------------------------------------------------------------------------------------------- Lüfter-Ringe
+class FanRings(QWidget):
+    """Zeigt die Lüfter einer Zone als Ringe mit ihren LEDs. Klick schaltet einzelne Lüfter an/aus."""
+
+    changed = Signal(list)  # Liste der ausgeschalteten Lüfter
+
+    def __init__(self, count: int, per: int, kind: str, off: list, parent=None):
+        super().__init__(parent)
+        self.count, self.per, self.kind = count, per, kind
+        self.off = set(off)
+        self._source = None  # Funktion: Anzahl LEDs -> aktuelle Farben
+        self._timer = QTimer(self)
+        self._timer.timeout.connect(self.update)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setMinimumHeight(86 if kind == "fan" else 40)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+
+    def set_source(self, source) -> None:
+        self._source = source
+
+    def showEvent(self, event):  # noqa: N802
+        self._timer.start(40)
+        super().showEvent(event)
+
+    def hideEvent(self, event):  # noqa: N802
+        self._timer.stop()
+        super().hideEvent(event)
+
+    def _slots(self):
+        gap = 10
+        if self.kind == "fan":
+            size = max(36.0, min(76.0, (self.width() - gap * (self.count - 1)) / max(1, self.count)))
+            return [QRectF(i * (size + gap), 4, size, size) for i in range(self.count)]
+        width = max(40.0, (self.width() - gap * (self.count - 1)) / max(1, self.count))
+        return [QRectF(i * (width + gap), 8, width, 22) for i in range(self.count)]
+
+    def sizeHint(self) -> QSize:  # noqa: N802
+        return QSize(200, 86 if self.kind == "fan" else 40)
+
+    def mousePressEvent(self, event):  # noqa: N802
+        for i, rect in enumerate(self._slots()):
+            if rect.contains(event.position()):
+                self.off ^= {i}
+                self.update()
+                self.changed.emit(sorted(self.off))
+                return
+
+    def paintEvent(self, _event):  # noqa: N802
+        import math
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        colors = []
+        if self._source:
+            try:
+                colors = self._source(self.count * self.per)
+            except Exception:  # noqa: BLE001
+                colors = []
+
+        def led_color(i, k):
+            if i in self.off:
+                return QColor("#2a2f3a")
+            idx = i * self.per + k
+            if idx < len(colors):
+                c = colors[idx]
+                return QColor(*c) if max(c) > 8 else QColor("#2a2f3a")
+            return QColor(theme.ACCENT)
+
+        for i, rect in enumerate(self._slots()):
+            on = i not in self.off
+            p.setPen(QPen(QColor(theme.BORDER), 1.2))
+            p.setBrush(QColor("#14171d"))
+            if self.kind == "fan":
+                p.drawEllipse(rect)
+                c = rect.center()
+                p.setPen(Qt.NoPen)
+                p.setBrush(QColor("#232834"))
+                p.drawEllipse(c, rect.width() * 0.16, rect.width() * 0.16)
+                radius = rect.width() * 0.36
+                for k in range(self.per):
+                    a = 2 * math.pi * k / max(1, self.per)
+                    pt = QPointF(c.x() + radius * math.cos(a), c.y() + radius * math.sin(a))
+                    p.setBrush(led_color(i, k))
+                    p.drawEllipse(pt, 2.6, 2.6)
+                p.setPen(QColor(theme.TEXT if on else theme.MUTED))
+                p.drawText(rect, Qt.AlignCenter, str(i + 1))
+            else:
+                p.drawRoundedRect(rect, 8, 8)
+                dots = min(self.per, int(rect.width() // 9))
+                p.setPen(Qt.NoPen)
+                for k in range(dots):
+                    p.setBrush(led_color(i, int(k * self.per / max(1, dots))))
+                    p.drawEllipse(QPointF(rect.left() + 8 + k * (rect.width() - 16) / max(1, dots - 1),
+                                          rect.center().y()), 2.6, 2.6)
