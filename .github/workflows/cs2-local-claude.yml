@@ -74,6 +74,7 @@ jobs:
         with:
           name: CS2 Local Claude ${{ github.ref_name }}
           body_path: cs2-local-claude/RELEASE_NOTES.md
+          prerelease: ${{ contains(github.ref_name, '-') }}
           files: |
             cs2-local-claude/dist/CS2LocalClaude.exe
             cs2-local-claude/dist/CS2LocalClaude.exe.sha256
