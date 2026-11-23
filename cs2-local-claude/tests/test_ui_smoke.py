@@ -51,6 +51,8 @@ for dev, type_id, type_name, vendor, zz in [
 settings["zone_layout"]["Corsair Commander Pro::Corsair RGB Header 1"] = {
     "name": "Corsair LL120 / LL140", "kind": "fan", "count": 6, "per": 16, "total": 96}
 settings["fans_off"]["Corsair Commander Pro::Corsair RGB Header 1"] = [4]
+settings["zone_layout"]["X870M AORUS ELITE WIFI7::ARGB_V2_1"] = {
+    "name": "Nichts angeschlossen", "kind": "none", "count": 0, "per": 0, "total": 0}
 settings["states"]["idle"]["effect"] = "spin"  # damit die Ringe sichtbar drehen
 for row, (state, text) in zip(win.setup_view.rows, [
         ("ok", "Läuft mit Adminrechten."), ("ok", "Gefunden und kompatibel."), ("ok", "Bereit auf Port 3002."),
@@ -130,9 +132,8 @@ while dlg.isVisible() and steps < 40:
     t = dlg.target
     z = t["resizable"]
     if z and z["zone"] == "ARGB_V2_1":
-        dlg.btn_no.click()  # an ARGB_V2_1 hängt nichts
-        if dlg.isVisible() and dlg.second_try:
-            dlg.btn_no.click()
+        assert dlg.btn_empty.isVisibleTo(dlg)
+        dlg.btn_empty.click()  # an ARGB_V2_1 hängt nichts: ein Klick, kein zweiter Versuch
         continue
     if t["device"].startswith("X870M") and not z and not dlg.second_try:
         dlg.btn_no.click()  # Board reagiert nicht auf Direktsteuerung …
@@ -149,7 +150,22 @@ assert "X870M AORUS ELITE WIFI7::ARGB_V2_2" in check_settings["devices"]
 assert "Corsair Commander Pro::Corsair RGB Header 2" in check_settings["devices"]  # war 0 LEDs, Test mit 60
 assert check_settings["zone_sizes"]["Corsair Commander Pro::Corsair RGB Header 2"] == 60
 assert check_settings["device_check_done"]
+assert dlg.failed_devices == [], dlg.failed_devices
 print("Geräte-Check ok:", dlg.summary())
+
+# Gerät, das auf keine Methode reagiert: wird gemeldet, Rest des Geräts automatisch übersprungen
+fail_settings = config.default_settings()
+dlg2 = DeviceCheckDialog(StubRGB(), fail_settings, zones, win, only_devices=["X870M AORUS ELITE WIFI7"])
+dlg2.show()
+app.processEvents()
+assert all(t["device"] == "X870M AORUS ELITE WIFI7" for t in dlg2.targets)
+dlg2.btn_no.click()  # Direkt: nichts
+assert dlg2.second_try
+dlg2.btn_no.click()  # Static: auch nichts -> Gerät versagt, Anschlüsse werden übersprungen
+app.processEvents()
+assert not dlg2.isVisible(), "Rest wurde nicht automatisch übersprungen"
+assert dlg2.failed_devices == ["X870M AORUS ELITE WIFI7"], dlg2.failed_devices
+print("Fehlgeschlagenes Gerät erkannt:", dlg2.failed_devices)
 
 win.go(2)
 page = win.effects_page

@@ -38,11 +38,12 @@ def build_targets(zones: list) -> list:
 
 
 class DeviceCheckDialog(QDialog):
-    def __init__(self, rgb, settings: dict, zones: list, parent=None):
+    def __init__(self, rgb, settings: dict, zones: list, parent=None, only_devices=None):
         super().__init__(parent)
         self.rgb = rgb
         self.settings = settings
-        self.targets = build_targets(zones)
+        self.targets = [t for t in build_targets(zones) if not only_devices or t["device"] in only_devices]
+        self.failed_devices: list = []  # reagieren auf keine Methode
         self.index = 0
         self.second_try = False
         self.stop: threading.Event | None = None
@@ -85,14 +86,18 @@ class DeviceCheckDialog(QDialog):
         self.hint.setWordWrap(True)
         lay.addWidget(self.hint)
         row = QHBoxLayout()
-        self.btn_skip = QPushButton("Überspringen")
+        self.btn_skip = QPushButton("⤼  Überspringen")
         self.btn_skip.setObjectName("Small")
         self.btn_skip.clicked.connect(lambda: self._answer(None))
         row.addWidget(self.btn_skip)
         row.addStretch(1)
-        self.btn_no = QPushButton("Nein, nichts")
+        self.btn_empty = QPushButton("⦸  Nichts angeschlossen")
+        self.btn_empty.setToolTip("An diesem Anschluss hängt nichts. Wird ausgeschaltet, ohne zweiten Versuch.")
+        self.btn_empty.clicked.connect(lambda: self._answer("empty"))
+        row.addWidget(self.btn_empty)
+        self.btn_no = QPushButton("✕  Nein")
         self.btn_no.clicked.connect(lambda: self._answer(False))
-        self.btn_yes = QPushButton("Ja, es blinkt")
+        self.btn_yes = QPushButton("✓  Ja, es blinkt")
         self.btn_yes.setObjectName("Primary")
         self.btn_yes.clicked.connect(lambda: self._answer(True))
         row.addWidget(self.btn_no)
@@ -110,12 +115,19 @@ class DeviceCheckDialog(QDialog):
             self._finish()
             return
         t = self.target
+        dkey = self.rgb.device_key(t["keys"][0])
+        if dkey in self.failed_devices:  # Gerät reagiert auf keine Methode: Rest automatisch überspringen
+            self.rejected.update(t["keys"])
+            self._undo_temp_size(t)
+            self.index += 1
+            self._show_target()
+            return
+        self.btn_empty.setVisible(bool(t["resizable"]))
         self.progress.setValue(self.index)
         self.step.setText(f"Schritt {self.index + 1} von {len(self.targets)}")
         self.icon.type_id = t["type_id"]
         self.icon.set_active(True)
         self.title.setText(t["label"])
-        dkey = self.rgb.device_key(t["keys"][0])
         if self.second_try:
             self.question.setText("Zweiter Versuch mit einer anderen Methode: Blinkt es jetzt türkis?")
             self.hint.setText("Manche Geräte (z. B. neue Gigabyte-Boards) reagieren nur so. Dann leuchten sie "
@@ -166,28 +178,34 @@ class DeviceCheckDialog(QDialog):
             self.thread.join(timeout=3.0)
         self.stop = self.thread = None
 
-    def _answer(self, yes) -> None:
+    def _undo_temp_size(self, t) -> None:
+        z = t["resizable"]
+        if z and z["key"] in self.temp_sizes:  # nichts angeschlossen: wieder auf 0
+            try:
+                self.rgb.resize(z["key"], 0)
+            except Exception:  # noqa: BLE001
+                pass
+            self.temp_sizes.pop(z["key"], None)
+
+    def _answer(self, answer) -> None:
+        """answer: True (blinkt), False (nichts zu sehen), "empty" (Anschluss leer), None (überspringen)."""
         t = self.target
         dkey = self.rgb.device_key(t["keys"][0])
-        if yes is False and not self.second_try and self.rgb.has_static(t["keys"][0]) \
+        if answer is False and not self.second_try and self.rgb.has_static(t["keys"][0]) \
                 and self.methods.get(dkey) != "static":
             self.second_try = True
             self._show_target()
             return
         self._stop_blink()
-        if yes:
+        if answer is True:
             self.confirmed.update(t["keys"])
             self.decided[dkey] = self.methods.get(dkey, "direct")
-        elif yes is False:
+        elif answer in (False, "empty"):
             self.rejected.update(t["keys"])
             self.methods[dkey] = self.decided.get(dkey, "direct")
-            z = t["resizable"]
-            if z and z["key"] in self.temp_sizes:  # nichts angeschlossen: wieder auf 0
-                try:
-                    self.rgb.resize(z["key"], 0)
-                except Exception:  # noqa: BLE001
-                    pass
-                self.temp_sizes.pop(z["key"], None)
+            self._undo_temp_size(t)
+            if answer is False and dkey not in self.decided and dkey not in self.failed_devices:
+                self.failed_devices.append(dkey)  # weder Direkt- noch Static-Steuerung zeigt etwas
         self.second_try = False
         self.index += 1
         self._show_target()
@@ -207,8 +225,8 @@ class DeviceCheckDialog(QDialog):
                 self.settings.setdefault("zone_layout", {})[key] = {
                     "name": "Unbekannt (Test mit 60 LEDs)", "kind": "strip", "count": 1, "per": size, "total": size}
         self.settings["device_check_done"] = True
-        log.info("Geräte-Check: %d Zonen bestätigt, %d abgelehnt, Methoden %s",
-                 len(self.confirmed), len(self.rejected), self.methods)
+        log.info("Geräte-Check: %d Zonen bestätigt, %d abgelehnt, ohne Reaktion: %s, Methoden %s",
+                 len(self.confirmed), len(self.rejected), self.failed_devices, self.methods)
         self.accept()
 
     def reject(self) -> None:  # Fenster geschlossen: Blinken beenden, nichts übernehmen

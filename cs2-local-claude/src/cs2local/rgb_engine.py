@@ -15,7 +15,8 @@ import threading
 import time
 from pathlib import Path
 
-from .config import OPENRGB_DIR, app_dir
+from . import config
+from .config import app_dir
 from .sdk_client import COLOR_MODE_PER_LED, SDKClient, SDKError
 
 log = logging.getLogger(__name__)
@@ -28,8 +29,9 @@ class RGBEngineError(Exception):
 
 
 class RGBEngine:
-    def __init__(self, port: int = 6742):
+    def __init__(self, port: int = 6742, variant: str = "stable"):
         self.port = port
+        self.variant = variant
         self.client: SDKClient | None = None
         self.proc: subprocess.Popen | None = None
         self.lock = threading.RLock()
@@ -46,12 +48,16 @@ class RGBEngine:
 
     # ------------------------------------------------------------ Start/Stop
     @staticmethod
-    def find_exe() -> Path | None:
-        direct = OPENRGB_DIR / "OpenRGB.exe"
+    def dev_available() -> bool:
+        return (config.OPENRGB_DEV_DIR / "OpenRGB.exe").exists()
+
+    def find_exe(self) -> Path | None:
+        base = config.OPENRGB_DEV_DIR if self.variant == "dev" and self.dev_available() else config.OPENRGB_DIR
+        direct = base / "OpenRGB.exe"
         if direct.exists():
             return direct
-        if OPENRGB_DIR.is_dir():
-            for found in OPENRGB_DIR.rglob("OpenRGB.exe"):
+        if base.is_dir():
+            for found in base.rglob("OpenRGB.exe"):
                 return found
         return None
 
@@ -87,7 +93,8 @@ class RGBEngine:
             cwd=str(exe.parent), creationflags=flags, stdout=out, stderr=subprocess.STDOUT,
             stdin=subprocess.DEVNULL,
         )
-        log.info("RGB-Engine gestartet (PID %s)", self.proc.pid)
+        log.info("RGB-Engine gestartet (PID %s, %s)", self.proc.pid,
+                 "Entwicklungsversion" if "openrgb_dev" in str(exe) else "OpenRGB 1.1")
 
     def _connect(self, deadline: float) -> None:
         last_error: Exception | None = None

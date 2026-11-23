@@ -71,7 +71,9 @@ class MainWindow(QMainWindow):
         self.bridge.pawnio_done.connect(self._on_pawnio_done)
         self.bridge.software_done.connect(self._on_software_done)
 
-        self.rgb = RGBEngine(int(opts["openrgb_port"]))
+        self.rgb = RGBEngine(int(opts["openrgb_port"]), settings.get("engine", "stable"))
+        self._retry_devices: list = []  # nach Wechsel auf die neueste Engine erneut prüfen
+        self._retry_stage = ""
         self.detector = StateDetector(lambda: self.settings["options"])
         self.engine = LightEngine(self.rgb, self.detector, lambda: self.settings)
         self.gsi: GSIServer | None = None
@@ -113,10 +115,10 @@ class MainWindow(QMainWindow):
         self.nav = QButtonGroup(self)
         self.nav.setExclusive(True)
         pages = [
-            ("①  Übersicht", self._page_overview()),
-            ("②  Geräte", self._page_devices()),
-            ("③  Effekte", self._page_effects()),
-            ("④  Live", self._page_live()),
+            ("⌂   Übersicht", self._page_overview()),
+            ("▦   Geräte", self._page_devices()),
+            ("✦   Effekte", self._page_effects()),
+            ("▶   Live", self._page_live()),
         ]
         for i, (label, page) in enumerate(pages):
             btn = QPushButton(label)
@@ -180,12 +182,12 @@ class MainWindow(QMainWindow):
         lay.addWidget(self.setup_view)
 
         row = QHBoxLayout()
-        for text, slot in (("CS2-Ordner wählen …", self._choose_cs2), ("Config neu schreiben", self._write_gsi)):
+        for text, slot in (("⌕  CS2-Ordner wählen", self._choose_cs2), ("↻  Config neu schreiben", self._write_gsi)):
             b = QPushButton(text)
             b.setObjectName("Small")
             b.clicked.connect(slot)
             row.addWidget(b)
-        self.btn_driver = QPushButton("Treiber installieren")
+        self.btn_driver = QPushButton("⬇  Treiber installieren")
         self.btn_driver.setObjectName("Small")
         self.btn_driver.clicked.connect(lambda: self._ask_pawnio(force=True))
         self.btn_driver.hide()
@@ -207,6 +209,7 @@ class MainWindow(QMainWindow):
         self.devices_page = DevicesPage(self.settings, self._zone_live_frame)
         self.devices_page.setup_requested.connect(self._setup_zone)
         self.devices_page.check_requested.connect(self._run_check)
+        self.devices_page.empty_requested.connect(self._zone_empty)
         self.devices_page.test_requested.connect(self._test_devices)
         self.devices_page.rescan_requested.connect(self._restart_rgb)
         lay.addWidget(self.devices_page)
@@ -475,6 +478,15 @@ class MainWindow(QMainWindow):
             self.card_rgb.set("warn", "Bereit, aber keine RGB-Geräte gefunden. Adminrechte? Andere RGB-Software offen?")
         known = {z["key"] for z in zones}
         self.settings["devices"] = [k for k in self.settings["devices"] if k in known]
+        engine_name = "neueste Entwicklungsversion" if self.rgb.variant == "dev" else "stabile Version"
+        self.card_rgb.set(self.card_rgb.state, self.card_rgb.text.text() + f"  ·  Engine: {engine_name}")
+        if self._retry_devices:  # nach dem Engine-Wechsel nur die betroffenen Geräte erneut prüfen
+            retry, self._retry_devices = self._retry_devices, []
+            self.rgb.methods = dict(self.settings.get("device_methods", {}))
+            self.devices_page.populate(zones)
+            self.go(1)
+            QTimer.singleShot(300, lambda: self._run_check(retry))
+            return
         self.rgb.methods = dict(self.settings.get("device_methods", {}))
         self.devices_page.populate(zones)
         if zones and not self.settings.get("device_check_done"):
@@ -531,19 +543,52 @@ class MainWindow(QMainWindow):
         self.card_gsi.set("ok", text)
 
     # ================================================================ Geräte-Aktionen
-    def _run_check(self) -> None:
+    def _run_check(self, only_devices=None) -> None:
         if not self.rgb_ready:
             QMessageBox.information(self, config.APP_NAME, "Die RGB-Engine ist noch nicht bereit.")
             return
         if self.engine.busy:
             QMessageBox.information(self, config.APP_NAME, BUSY_MSG)
             return
-        dialog = DeviceCheckDialog(self.rgb, self.settings, self.rgb.zones(), self)
+        dialog = DeviceCheckDialog(self.rgb, self.settings, self.rgb.zones(), self, only_devices)
         accepted = dialog.exec() == QDialog.Accepted
         self.devices_page.populate(self.rgb.zones())
-        if accepted:
-            config.save_settings(self.settings)
-            QMessageBox.information(self, "Geräte-Check fertig", dialog.summary())
+        if not accepted:
+            return
+        config.save_settings(self.settings)
+        failed = dialog.failed_devices
+        if self._retry_stage == "dev":  # Ergebnis des zweiten Versuchs mit der neuesten Engine
+            self._retry_stage = ""
+            if failed:
+                self._switch_engine("stable")
+                QMessageBox.information(
+                    self, "Geräte-Check",
+                    f"{', '.join(failed)} reagiert auch mit der neuesten RGB-Engine nicht. Das Gerät wird von "
+                    "OpenRGB (noch) nicht unterstützt. Das Tool nutzt wieder die stabile Version.")
+            else:
+                QMessageBox.information(self, "Geräte-Check",
+                                        "Mit der neuesten RGB-Engine funktioniert es. Das Tool verwendet sie ab jetzt.")
+            return
+        if failed and self.rgb.dev_available() and self.settings.get("engine") != "dev":
+            answer = QMessageBox.question(
+                self, "Geräte-Check",
+                f"{dialog.summary()}\n\n{', '.join(failed)} reagiert auf keine Methode. Sehr neue Hardware braucht "
+                "manchmal die neueste RGB-Engine (OpenRGB-Entwicklungsversion, im Tool enthalten).\n\n"
+                "Damit erneut versuchen? Es werden nur diese Geräte noch einmal geprüft.")
+            if answer == QMessageBox.Yes:
+                self._retry_devices = list(failed)
+                self._retry_stage = "dev"
+                self._switch_engine("dev")
+                return
+        QMessageBox.information(self, "Geräte-Check fertig", dialog.summary())
+
+    def _switch_engine(self, variant: str) -> None:
+        self.settings["engine"] = variant
+        config.save_settings(self.settings)
+        self.rgb.shutdown()
+        self.rgb.variant = variant
+        log.info("Wechsle RGB-Engine auf %s", variant)
+        self._start_rgb()
 
     def _setup_zone(self, key: str, zone: str, leds_max: int) -> None:
         if self.engine.busy:
@@ -565,6 +610,23 @@ class MainWindow(QMainWindow):
         if layout["total"] > 0 and key not in self.settings["devices"]:
             self.settings["devices"].append(key)
         elif layout["total"] == 0 and key in self.settings["devices"]:
+            self.settings["devices"].remove(key)
+        config.save_settings(self.settings)
+        self.devices_page.populate(self.rgb.zones())
+
+    def _zone_empty(self, key: str) -> None:
+        """Anschluss als „nichts angeschlossen“ markieren."""
+        if self.engine.busy:
+            QMessageBox.information(self, config.APP_NAME, BUSY_MSG)
+            return
+        try:
+            self.rgb.resize(key, 0)
+        except Exception:  # noqa: BLE001
+            log.exception("Zone leeren fehlgeschlagen")
+        self.settings.setdefault("zone_layout", {})[key] = {"name": "Nichts angeschlossen", "kind": "none",
+                                                            "count": 0, "per": 0, "total": 0}
+        self.settings.setdefault("zone_sizes", {})[key] = 0
+        if key in self.settings["devices"]:
             self.settings["devices"].remove(key)
         config.save_settings(self.settings)
         self.devices_page.populate(self.rgb.zones())

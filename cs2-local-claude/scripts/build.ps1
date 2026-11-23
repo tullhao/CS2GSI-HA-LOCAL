@@ -7,12 +7,16 @@ if (-not (Test-Path "bundle\openrgb\OpenRGB.exe") -or -not (Test-Path "bundle\pa
     & (Join-Path $PSScriptRoot "fetch_bundle.ps1")
 }
 
+$extra = @()
+if (Test-Path "bundle\openrgb_dev\OpenRGB.exe") { $extra = @("--add-data", "bundle\openrgb_dev;openrgb_dev") }
+
 python -m PyInstaller --noconfirm --clean --onefile --windowed --uac-admin `
     --name CS2LocalClaude `
     --paths src `
     --add-data "bundle\openrgb;openrgb" `
     --add-data "bundle\pawnio;pawnio" `
     --add-data "bundle\licenses;licenses" `
+    @extra `
     run.py
 if ($LASTEXITCODE -ne 0) { throw "PyInstaller fehlgeschlagen" }
 

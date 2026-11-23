@@ -134,6 +134,7 @@ class ResponsiveGrid(QWidget):
 
 # ------------------------------------------------------------------------------------------- Geräte
 class DeviceCard(QFrame):
+    empty_requested = Signal(str)
     selection_changed = Signal(str, bool)
     setup_requested = Signal(str, str, int)
     fans_changed = Signal(str, list)
@@ -193,7 +194,9 @@ class DeviceCard(QFrame):
             col = QVBoxLayout()
             col.setSpacing(2)
             col.addWidget(_label(z["zone"], "CardHeading"))
-            if layout:
+            if layout and layout.get("kind") == "none":
+                text = "⦸  Nichts angeschlossen"
+            elif layout:
                 text = f"{layout['count']} × {layout['name']}  ·  {z['leds']} LEDs"
             elif z["leds"]:
                 text = f"{z['leds']} LEDs, Hardware nicht angegeben"
@@ -201,8 +204,15 @@ class DeviceCard(QFrame):
                 text = "Nicht eingerichtet: Was hängt an diesem Anschluss?"
             col.addWidget(_label(text, "Muted", wrap=True))
             row.addLayout(col, 1)
-            setup = QPushButton("Ändern …" if layout else "Einrichten …")
-            setup.setObjectName("Small" if layout else "Primary")
+            if not (layout and layout.get("kind") == "none"):
+                empty = QPushButton("⦸")
+                empty.setObjectName("Icon")
+                empty.setToolTip("Nichts angeschlossen")
+                empty.clicked.connect(lambda _=False, k=z["key"]: self.empty_requested.emit(k))
+                row.addWidget(empty, 0, Qt.AlignTop)
+            setup = QPushButton("✎" if layout else "⚙  Einrichten")
+            setup.setObjectName("Icon" if layout else "Primary")
+            setup.setToolTip("Ändern" if layout else "Was hängt an diesem Anschluss?")
             setup.clicked.connect(lambda _=False, k=z["key"], n=z["zone"], hi=z["leds_max"]:
                                   self.setup_requested.emit(k, n, hi))
             row.addWidget(setup, 0, Qt.AlignTop)
@@ -223,7 +233,7 @@ class DeviceCard(QFrame):
         foot = QHBoxLayout()
         self.summary = _label("", "Muted")
         foot.addWidget(self.summary, 1)
-        test = QPushButton("Testen")
+        test = QPushButton("◉  Testen")
         test.setObjectName("Small")
         test.setToolTip("Lässt die gewählten Zonen dieses Geräts türkis blinken")
         test.clicked.connect(self._test)
@@ -264,6 +274,7 @@ class DeviceCard(QFrame):
 
 class DevicesPage(QWidget):
     check_requested = Signal()
+    empty_requested = Signal(str)
     selection_changed = Signal()
     setup_requested = Signal(str, str, int)
     test_requested = Signal(list)
@@ -286,8 +297,8 @@ class DevicesPage(QWidget):
                          "Was nicht reagiert, wird ausgeschaltet.")
         check.clicked.connect(self.check_requested.emit)
         bar.addWidget(check)
-        for text, slot in (("Alle", lambda: self._set_all(True)), ("Keine", lambda: self._set_all(False)),
-                           ("Geräte neu suchen", self.rescan_requested.emit)):
+        for text, slot in (("☑  Alle", lambda: self._set_all(True)), ("☐  Keine", lambda: self._set_all(False)),
+                           ("⟳  Neu suchen", self.rescan_requested.emit)):
             btn = QPushButton(text)
             btn.setObjectName("Small")
             btn.clicked.connect(slot)
@@ -311,6 +322,7 @@ class DevicesPage(QWidget):
             card.selection_changed.connect(self._on_select)
             card.setup_requested.connect(self.setup_requested.emit)
             card.fans_changed.connect(self._on_fans)
+            card.empty_requested.connect(self.empty_requested.emit)
             card.test_requested.connect(self.test_requested.emit)
             self.cards[device] = card
         self.grid.set_widgets(list(self.cards.values()))
@@ -404,7 +416,7 @@ class StateCard(QFrame):
         show.setToolTip("Spielt den Effekt 3 Sekunden auf deinen Geräten ab")
         show.clicked.connect(lambda: self.device_preview.emit(self.sid))
         row.addWidget(show)
-        self.more = QPushButton("Mehr  ▾")
+        self.more = QPushButton("⋯  Mehr")
         self.more.setObjectName("Link")
         self.more.setCheckable(True)
         self.more.toggled.connect(self._toggle_details)
@@ -472,7 +484,7 @@ class StateCard(QFrame):
 
     def _toggle_details(self, on: bool) -> None:
         self.details.setVisible(on)
-        self.more.setText("Weniger  ▴" if on else "Mehr  ▾")
+        self.more.setText("⋯  Weniger" if on else "⋯  Mehr")
 
     def _pick_color(self) -> None:
         if self.cfg.get("team_color"):
@@ -570,7 +582,7 @@ class EffectsPage(QWidget):
         fps.valueChanged.connect(lambda v: self._opt("fps", v))
         g.addWidget(fps)
         g.addSpacing(20)
-        reset = QPushButton("Alles auf Standard")
+        reset = QPushButton("↺  Standard")
         reset.setObjectName("Small")
         reset.clicked.connect(self._reset)
         g.addWidget(reset)

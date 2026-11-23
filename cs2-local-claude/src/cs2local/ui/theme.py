@@ -44,6 +44,7 @@ QPushButton#StartButton[running="true"] {{ background: {ERROR}; color: white; }}
 QPushButton#ColorButton {{ border-radius: 8px; min-width: 56px; min-height: 26px; padding: 0; }}
 
 QPushButton#Small {{ padding: 6px 12px; border-radius: 8px; }}
+QPushButton#Icon {{ padding: 0; min-width: 32px; max-width: 32px; min-height: 30px; border-radius: 9px; font-size: 11pt; }}
 QPushButton#Link {{ background: transparent; border: none; color: {MUTED}; padding: 4px 6px; }}
 QPushButton#Link:hover, QPushButton#Link:checked {{ color: {TEXT}; }}
 QPushButton#Segment {{

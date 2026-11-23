@@ -78,11 +78,12 @@ def match(*texts) -> str | None:
 _SCAN_SCRIPT = r"""
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $ErrorActionPreference = 'SilentlyContinue'
-$cmd = @{}
-Get-CimInstance Win32_Process | ForEach-Object { $cmd[[int]$_.ProcessId] = $_.CommandLine }
+$cmd = @{}; $parent = @{}
+Get-CimInstance Win32_Process | ForEach-Object { $cmd[[int]$_.ProcessId] = $_.CommandLine;
+                                                 $parent[[int]$_.ProcessId] = $_.ParentProcessId }
 $procs = Get-Process | Where-Object { $_.Path } | ForEach-Object {
   [pscustomobject]@{ pid=$_.Id; name=$_.ProcessName; path=$_.Path; company=$_.Company; product=$_.Product;
-                     cmd=$cmd[[int]$_.Id] } }
+                     cmd=$cmd[[int]$_.Id]; parent=$parent[[int]$_.Id] } }
 $svcs = Get-CimInstance Win32_Service | ForEach-Object {
   [pscustomobject]@{ name=$_.Name; display=$_.DisplayName; path=$_.PathName; state=$_.State; pid=$_.ProcessId } }
 $keys = 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*',
@@ -142,8 +143,10 @@ def scan() -> dict:
         path = proc["path"]
         aumid = next((a for loc, a in store_ids if loc and a and path.lower().startswith(loc)), "")
         entry(name)["installed"] = True
+        helper = proc.get("parent") in service_pids or "crashpad" in (proc.get("name") or "").lower() \
+            or "updat" in (proc.get("name") or "").lower()
         entry(name)["processes"].append({"pid": proc["pid"], "name": proc.get("name"), "path": path,
-                                         "cmd": proc.get("cmd") or f'"{path}"', "aumid": aumid})
+                                         "cmd": proc.get("cmd") or f'"{path}"', "aumid": aumid, "helper": helper})
     log.info("Software-Prüfung: %s", {k: ("läuft" if v["services"] or v["processes"] else "installiert")
                                       for k, v in found.items()})
     return found
@@ -171,6 +174,8 @@ def pause(found: dict) -> list:
                                     timeout=15, creationflags=_NO_WINDOW)
             if result.returncode in (0, 128):
                 key = proc.get("aumid") or proc["cmd"]
+                if proc.get("helper"):  # Hilfsprozess: startet sein Dienst/Programm selbst wieder
+                    continue
                 if key not in seen:
                     restart["processes"].append({"cmd": proc["cmd"], "path": proc["path"], "vendor": vendor,
                                                  "aumid": proc.get("aumid", "")})

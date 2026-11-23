@@ -19,7 +19,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from cs2local import rgb_engine  # noqa: E402
+from cs2local import config, rgb_engine  # noqa: E402
 from cs2local.config import STATE_ORDER, default_settings  # noqa: E402
 from cs2local.engine import LightEngine  # noqa: E402
 from cs2local.states import StateDetector  # noqa: E402
@@ -33,7 +33,7 @@ shutil.copytree(BUNDLE, work)
 (work / "OpenRGB.json").write_text(json.dumps({"DebugDevices": {"devices": [
     {"type": "keyboard"}, {"type": "motherboard"}, {"type": "argb"}, {"type": "dram"}, {"type": "gpu"},
 ]}}), encoding="utf-8")
-rgb_engine.OPENRGB_DIR = work
+config.OPENRGB_DIR = work
 
 engine = rgb_engine.RGBEngine(6797)
 t0 = time.monotonic()
@@ -129,3 +129,26 @@ engine.shutdown()
 assert proc.poll() is not None, "RGB-Engine läuft nach dem Beenden noch"
 print("6) Sauber beendet")
 print("RGB-Engine HÄRTETEST OK")
+
+# 7) Entwicklungsversion (falls eingebaut) mit denselben Testgeräten starten
+DEV = Path(__file__).resolve().parents[1] / "bundle" / "openrgb_dev"
+if (DEV / "OpenRGB.exe").exists():
+    work_dev = Path(tempfile.mkdtemp()) / "openrgb_dev"
+    shutil.copytree(DEV, work_dev)
+    shutil.copy(work / "OpenRGB.json", work_dev / "OpenRGB.json")
+    config.OPENRGB_DEV_DIR = work_dev
+    dev = rgb_engine.RGBEngine(6796, variant="dev")
+    assert "openrgb_dev" in str(dev.find_exe())
+    dev.start(progress=print)
+    print(f"7) Entwicklungsversion: Protokoll {dev.client.version}, {len(dev.devices)} Geräte")
+    assert len(dev.devices) >= 5 and all(d.zones for d in dev.devices)
+    k = [z["key"] for z in dev.zones() if z["leds"] > 0][0]
+    dev.prepare([k])
+    dev.set_zone(k, [(1, 2, 3)] * dev.led_count(k))
+    time.sleep(0.5)
+    _, d, zz = dev._zones[k]  # noqa: SLF001
+    assert dev.client.device(d.index).zone_colors(zz)[0] == (1 | 2 << 8 | 3 << 16), "Farbe kam nicht an (dev)"
+    dev.shutdown()
+    print("ENTWICKLUNGSVERSION OK")
+else:
+    print("7) Entwicklungsversion nicht im Bundle")

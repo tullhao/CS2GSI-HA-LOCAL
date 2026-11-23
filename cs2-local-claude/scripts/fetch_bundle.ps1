@@ -7,12 +7,15 @@ $ProgressPreference = "SilentlyContinue"
 $root     = Split-Path -Parent $PSScriptRoot
 $bundle   = Join-Path $root "bundle"
 $openrgb  = Join-Path $bundle "openrgb"
+$openrgbDev = Join-Path $bundle "openrgb_dev"
 $pawnio   = Join-Path $bundle "pawnio"
 $tmp      = Join-Path $env:RUNNER_TEMP "cs2local-fetch"
 if (-not $env:RUNNER_TEMP) { $tmp = Join-Path $env:TEMP "cs2local-fetch" }
 
 $OpenRGBUrl = if ($env:OPENRGB_URL) { $env:OPENRGB_URL } else {
     "https://codeberg.org/OpenRGB/OpenRGB/releases/download/release_1.1/OpenRGB_1.1_Windows_64_8e16de2.zip" }
+$OpenRGBDevUrl = if ($env:OPENRGB_DEV_URL) { $env:OPENRGB_DEV_URL } else {
+    "https://gitlab.com/CalcProgrammer1/OpenRGB/-/jobs/artifacts/master/download?job=Windows%2064" }
 $PawnIOUrl  = if ($env:PAWNIO_URL) { $env:PAWNIO_URL } else {
     "https://github.com/namazso/PawnIO.Setup/releases/latest/download/PawnIO_setup.exe" }
 
@@ -45,6 +48,30 @@ if ($crt) {
     }
 }
 
+# ---------------------------------------------------------------- OpenRGB Entwicklungsversion (neueste Geräte-Fixes)
+try {
+    Write-Host "Lade OpenRGB-Entwicklungsversion: $OpenRGBDevUrl"
+    $devZip = Join-Path $tmp "openrgb_dev.zip"
+    Invoke-WebRequest -Uri $OpenRGBDevUrl -OutFile $devZip -UseBasicParsing
+    Write-Host ("SHA256 OpenRGB dev: " + (Get-FileHash $devZip -Algorithm SHA256).Hash)
+    $devExtract = Join-Path $tmp "openrgb_dev"
+    Expand-Archive -Path $devZip -DestinationPath $devExtract -Force
+    # Das Pipeline-Artefakt kann ein ZIP im ZIP sein
+    Get-ChildItem -Path $devExtract -Recurse -Filter "*.zip" | ForEach-Object {
+        Expand-Archive -Path $_.FullName -DestinationPath (Join-Path $devExtract "inner") -Force }
+    $devExe = Get-ChildItem -Path $devExtract -Recurse -Filter "OpenRGB.exe" | Select-Object -First 1
+    if (-not $devExe) { throw "OpenRGB.exe nicht im Entwicklungs-Paket" }
+    New-Item -ItemType Directory -Force $openrgbDev | Out-Null
+    Copy-Item -Path (Join-Path $devExe.DirectoryName "*") -Destination $openrgbDev -Recurse -Force
+    Get-ChildItem -Path $openrgb -Filter "*.dll" | Where-Object { $_.Name -match "^(msvcp|vcruntime|concrt)" } |
+        Copy-Item -Destination $openrgbDev -Force
+    $ver = (Get-Item (Join-Path $openrgbDev "OpenRGB.exe")).VersionInfo.FileVersion
+    Write-Host "OpenRGB-Entwicklungsversion: $ver, Dateien: $((Get-ChildItem $openrgbDev -Recurse -File).Count)"
+} catch {
+    Write-Host "WARNUNG: Entwicklungsversion nicht verfügbar ($_). Build läuft nur mit 1.1 weiter."
+    Remove-Item -Recurse -Force $openrgbDev -ErrorAction SilentlyContinue
+}
+
 # ---------------------------------------------------------------- PawnIO
 Write-Host "Lade PawnIO-Setup: $PawnIOUrl"
 $setup = Join-Path $pawnio "PawnIO_setup.exe"
@@ -61,6 +88,7 @@ Get-ChildItem -Path $openrgb -Filter "LICENSE*" -File | Copy-Item -Destination (
 Set-Content -Path (Join-Path $licenses "SOURCES.txt") -Encoding UTF8 -Value @"
 Eingebaute Bausteine (unverändert):
 - OpenRGB 1.1, GPL-2.0. Quellcode: https://codeberg.org/OpenRGB/OpenRGB  Download: $OpenRGBUrl
+- OpenRGB Entwicklungsversion (master), GPL-2.0. Quellcode: https://gitlab.com/CalcProgrammer1/OpenRGB  Download: $OpenRGBDevUrl
 - PawnIO Setup (namazso). Quellcode: https://github.com/namazso/PawnIO  Download: $PawnIOUrl
 - Microsoft Visual C++ Laufzeit (redistributable)
 "@

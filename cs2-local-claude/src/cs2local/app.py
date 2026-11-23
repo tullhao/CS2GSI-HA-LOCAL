@@ -39,7 +39,7 @@ def choose_settings() -> dict:
     box.exec()
     if box.clickedButton() is take:
         return last
-    for key in ("cs2_path", "gsi_token", "zone_sizes", "zone_layout", "pawnio_declined", "device_methods"):  # technische Werte behalten
+    for key in ("cs2_path", "gsi_token", "zone_sizes", "zone_layout", "pawnio_declined", "device_methods", "engine"):  # technische Werte behalten
         settings[key] = last.get(key, settings[key])
     for key in ("gsi_port", "openrgb_port"):
         settings["options"][key] = last["options"][key]
@@ -54,10 +54,11 @@ def selftest() -> int:
     log = logging.getLogger("selftest")
     lines = [f"{config.APP_NAME} {config.VERSION}", f"Bausteine: {config.resource_dir()}"]
     ok = True
-    exe = RGBEngine.find_exe()
+    exe = RGBEngine(6799).find_exe()
     lines.append(f"OpenRGB.exe: {exe}")
     ok &= exe is not None
     lines.append(f"PawnIO-Setup: {pawnio_setup_available()}")
+    lines.append(f"Entwicklungsversion eingebaut: {RGBEngine.dev_available()}")
     ok &= pawnio_setup_available()
     engine = RGBEngine(6799)
     try:
