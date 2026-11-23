@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
 
 from .. import config
 from ..engine import state_color
-from .widgets import ColorSwatch, DeviceIcon, FanRings, LedPreview, ToggleSwitch, ZoneChip, state_preview_source
+from .widgets import ColorSwatch, DeviceIcon, FanRings, LedPreview, ScanRing, ToggleSwitch, ZoneChip, state_preview_source
 from ..i18n import tr
 
 
@@ -307,8 +307,37 @@ class DevicesPage(QWidget):
         self.grid = ResponsiveGrid(min_column=430)
         lay.addWidget(self.grid)
         self.empty = _label(tr("Noch keine Geräte. Die RGB-Engine sucht gerade, oder es wurde nichts gefunden (Adminrechte? Andere RGB-Software offen?)."), "Muted", wrap=True)
+        self.empty.hide()
         lay.addWidget(self.empty)
+        # Gerätesuche: grosser Ring, der sich füllt (voll = fertig)
+        self.scan_box = QFrame()
+        self.scan_box.setObjectName("Card")
+        sb = QHBoxLayout(self.scan_box)
+        sb.setContentsMargins(28, 24, 28, 24)
+        sb.setSpacing(24)
+        self.scan_ring = ScanRing(110)
+        sb.addWidget(self.scan_ring)
+        col = QVBoxLayout()
+        col.setSpacing(4)
+        col.addStretch(1)
+        col.addWidget(_label(tr("Suche RGB-Geräte …"), "CardHeading"))
+        self.scan_stage = _label(tr("Warte auf die RGB-Engine …"), "Muted", wrap=True)
+        col.addWidget(self.scan_stage)
+        col.addWidget(_label(tr("Mit RGB-Arbeitsspeicher dauert die Suche etwa 15 Sekunden. Ist der Kreis voll, ist alles gefunden."),
+                             "Muted", wrap=True))
+        col.addStretch(1)
+        sb.addLayout(col, 1)
+        lay.addWidget(self.scan_box)
         lay.addStretch(1)
+
+    def set_scan(self, fraction: float, stage: str) -> None:
+        """Fortschritt der Gerätesuche anzeigen; die Gerätekarten bleiben bis zum Ende ausgeblendet."""
+        self.scan_box.show()
+        self.empty.hide()
+        self.grid.hide()
+        self.scan_ring.set_fraction(fraction)
+        self.scan_stage.setText(f"{int(round(fraction * 100))} %  ·  {stage}")
+        self.summary.setText(tr("Suche RGB-Geräte …"))
 
     def populate(self, zones: list) -> None:
         self.cards.clear()
@@ -325,6 +354,8 @@ class DevicesPage(QWidget):
             card.test_requested.connect(self.test_requested.emit)
             self.cards[device] = card
         self.grid.set_widgets(list(self.cards.values()))
+        self.grid.show()
+        self.scan_box.hide()
         self.empty.setVisible(not by_device)
         self._update_summary()
 

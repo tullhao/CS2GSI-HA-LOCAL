@@ -60,10 +60,28 @@ for row, (state, text) in zip(win.setup_view.rows, [
         ("warn", "PawnIO ist nicht installiert. RGB-Arbeitsspeicher wird übersprungen."),
         ("busy", "Suche RGB-Geräte …"), ("pending", "Wartet …")]):
     row.set(state, text)
+win.card_rgb.set_progress(0.62, "USB devices (motherboard, fans, keyboard, mouse …) · 5 found")
 win.setup_view.refresh_headline()
+import time as _t  # noqa: E402
+
+end = _t.monotonic() + 1.5  # Ring gleitet zum Ziel
+while _t.monotonic() < end:
+    app.processEvents()
 shot("1_uebersicht")
 win.go(1)
+win.devices_page.set_scan(0.62, "USB devices (motherboard, fans, keyboard, mouse …) · 5 found")
+end = _t.monotonic() + 1.5
+while _t.monotonic() < end:
+    app.processEvents()
+shot("2_geraete_suche")
+win.devices_page.set_scan(1.0, "Done")
+end = _t.monotonic() + 1.5
+while _t.monotonic() < end:
+    app.processEvents()
+assert win.devices_page.scan_ring.done, "Ring wird nicht voll"
+shot("2_geraete_suche_fertig")
 win.devices_page.populate(zones)
+assert win.devices_page.scan_box.isHidden()
 shot("2_geraete_leer")
 card = win.devices_page.cards["G915 X LS TKL"]
 card.master.click()

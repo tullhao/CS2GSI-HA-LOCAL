@@ -45,6 +45,10 @@ def collect_keys() -> list:
         add(name)
     for v in DEVICE_TYPES.values():
         add(v)
+    from cs2local.rgb_engine import RGBEngine
+    for _marker, _value, label in RGBEngine._PHASES:  # noqa: SLF001
+        add(label)
+    add("Suche läuft")
     return keys
 
 

@@ -13,6 +13,7 @@ from PySide6.QtGui import QColor, QPainter
 from PySide6.QtWidgets import QDialog, QFrame, QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget
 
 from . import theme
+from .widgets import ScanRing
 from ..i18n import tr
 
 STATE_COLORS = {"pending": "#2a2f3a", "busy": theme.ACCENT, "ok": theme.OK, "warn": theme.WARN, "error": theme.ERROR}
@@ -72,12 +73,27 @@ class StepRow(QWidget):
         self.text.setTextInteractionFlags(Qt.TextSelectableByMouse)
         col.addWidget(self.title)
         col.addWidget(self.text)
+        self.ring = ScanRing(28)  # ersetzt das Symbol, solange ein Schritt einen Fortschritt meldet
+        self.ring.hide()
         lay.addWidget(self.icon, 0, Qt.AlignTop)
+        lay.addWidget(self.ring, 0, Qt.AlignTop)
         lay.addLayout(col, 1)
         self.set("pending", tr("Wartet …"))
 
+    def set_progress(self, fraction: float, text: str) -> None:
+        """Laufender Schritt mit Fortschritt: kleiner Ring statt Symbol, Prozent vor dem Text."""
+        self.state = "busy"
+        self.icon.hide()
+        self.ring.show()
+        self.ring.set_fraction(fraction)
+        self.text.setText(f"{int(round(fraction * 100))} %  ·  {text}")
+        self.bar.set_state(self.index, "busy")
+
     def set(self, state: str, text: str) -> None:
         self.state = state
+        if state != "busy":
+            self.ring.hide()
+            self.icon.show()
         color = STATE_COLORS[state]
         if state == "pending":
             self.icon.setStyleSheet(f"border: 2px solid {color}; border-radius: 14px;")

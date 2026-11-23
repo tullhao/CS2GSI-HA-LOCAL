@@ -37,6 +37,7 @@ def busy_msg() -> str:
 class Bridge(QObject):
     """Signale aus Hintergrund-Threads sicher in die Oberfläche bringen."""
     rgb_progress = Signal(str)
+    rgb_scan = Signal(float, str)
     rgb_done = Signal(bool, str)
     task_done = Signal(str, str)
     pawnio_done = Signal(bool, bool, str)
@@ -71,6 +72,7 @@ class MainWindow(QMainWindow):
         opts = settings["options"]
         self.bridge = Bridge()
         self.bridge.rgb_progress.connect(lambda msg: self.card_rgb.set("busy", msg))
+        self.bridge.rgb_scan.connect(self._on_rgb_scan)
         self.bridge.rgb_done.connect(self._on_rgb_done)
         self.bridge.task_done.connect(self._on_task_done)
         self.bridge.pawnio_done.connect(self._on_pawnio_done)
@@ -437,10 +439,12 @@ class MainWindow(QMainWindow):
     def _start_rgb(self) -> None:
         self.rgb_ready = False
         self.card_rgb.set("busy", tr("Starte …"))
+        self.devices_page.set_scan(0.0, tr("Starte …"))
 
         def work():
             try:
-                self.rgb.start(self.settings.get("zone_sizes", {}), self.bridge.rgb_progress.emit)
+                self.rgb.start(self.settings.get("zone_sizes", {}), self.bridge.rgb_progress.emit,
+                               scan=self.bridge.rgb_scan.emit)
                 self.bridge.rgb_done.emit(True, "")
             except RGBEngineError as exc:
                 self.bridge.rgb_done.emit(False, str(exc))
@@ -460,7 +464,20 @@ class MainWindow(QMainWindow):
             self.btn_driver.hide()
         self._start_rgb()
 
+    def _on_rgb_scan(self, fraction: float, stage: str) -> None:
+        self.card_rgb.set_progress(fraction, stage)
+        self.devices_page.set_scan(fraction, stage)
+
     def _on_rgb_done(self, ok: bool, message: str) -> None:
+        if ok and not self.devices_page.scan_box.isHidden():
+            # Ring kurz voll und grün zeigen, dann erst die Gerätekarten
+            self.devices_page.set_scan(1.0, tr("Fertig"))
+            self.card_rgb.set_progress(1.0, tr("Fertig"))
+            QTimer.singleShot(1000, lambda: self._finish_rgb(ok, message))
+        else:
+            self._finish_rgb(ok, message)
+
+    def _finish_rgb(self, ok: bool, message: str) -> None:
         if not ok:
             self.card_rgb.set("error", message)
             self.devices_page.populate([])

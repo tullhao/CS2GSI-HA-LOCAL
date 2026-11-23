@@ -46,6 +46,7 @@ class RGBEngine:
         self._static_sent: dict = {}
         self._last: dict = {}
         self._log_handle = None
+        self.scan_fraction = 0.0   # 0 … 1, Fortschritt der Gerätesuche (für den Ring in der Oberfläche)
         atexit.register(self._kill)
 
     # ------------------------------------------------------------ Start/Stop
@@ -144,7 +145,10 @@ class RGBEngine:
                 time.sleep(1.0)
         raise RGBEngineError(tr("Keine Verbindung zur RGB-Engine möglich: {v0}", v0=last_error))
 
-    def start(self, zone_sizes: dict | None = None, progress=lambda msg: None) -> None:
+    def start(self, zone_sizes: dict | None = None, progress=lambda msg: None,
+              scan=lambda fraction, stage: None) -> None:
+        """scan(fraction, stage) meldet den Fortschritt der Gerätesuche (0 … 1) für die Anzeige."""
+        self.scan_fraction = 0.0
         with self.lock:
             if self._port_open():
                 progress(tr("Eine laufende OpenRGB-Instanz wurde gefunden, verbinde …"))
@@ -152,7 +156,7 @@ class RGBEngine:
                 self._launch(progress)
             self._connect(time.monotonic() + 60)
             progress(tr("Suche RGB-Geräte (das dauert ein paar Sekunden) …"))
-            self._wait_for_devices(progress=progress)
+            self._wait_for_devices(progress=progress, scan=scan)
             for key, size in (zone_sizes or {}).items():
                 try:
                     if key in self._zones and self.led_count(key) != size:
@@ -167,17 +171,48 @@ class RGBEngine:
                          ", ".join(f"{z.name}[{z.leds_count}]" for z in dev.zones),
                          ", ".join(m.name for m in dev.modes))
 
-    def _detection_finished(self) -> bool:
-        """OpenRGB schreibt „Detection completed“ ins Engine-Log, wenn die Suche ganz fertig ist."""
+    # Abschnitte, die OpenRGB beim Suchen ins Log schreibt, mit ungefährem Anteil an der Gesamtzeit
+    _PHASES = (
+        ("Start device detection", 0.05, "Suche startet"),
+        ("Detecting I2C interfaces", 0.10, "Mainboard-Bus und Arbeitsspeicher"),
+        ("Detecting I2C devices", 0.18, "Mainboard-Bus und Arbeitsspeicher"),
+        ("Detecting I2C DRAM modules", 0.30, "Arbeitsspeicher"),
+        ("Detecting I2C PCI devices", 0.38, "Grafikkarte"),
+        ("HID device connected", 0.45, "USB-Geräte (Mainboard, Lüfter, Tastatur, Maus …)"),
+        ("Detecting other devices", 0.95, "Weitere Geräte"),
+        ("Detection completed", 1.0, "Fertig"),
+    )
+
+    def _read_engine_log(self) -> str:
         if not self._log_handle:
-            return False
+            return ""
         try:
             self._log_handle.flush()
-            return "Detection completed" in ENGINE_LOG.read_text(encoding="utf-8", errors="replace")
+            return ENGINE_LOG.read_text(encoding="utf-8", errors="replace")
         except OSError:
-            return False
+            return ""
 
-    def _wait_for_devices(self, timeout: float = 60.0, progress=lambda msg: None) -> None:
+    def _scan_state(self, text: str, elapsed: float) -> tuple:
+        """Fortschritt (0 … 1) und Abschnitt aus dem Engine-Log; ohne Log nach Zeit geschätzt."""
+        if not text:
+            return min(0.9, elapsed / 20.0), "Suche läuft", 0.9
+        fraction, stage, nxt = 0.02, "Suche startet", 0.05
+        for i, (marker, value, label) in enumerate(self._PHASES):
+            if marker in text:
+                fraction, stage = value, label
+                nxt = self._PHASES[i + 1][1] if i + 1 < len(self._PHASES) else 1.0
+        if stage.startswith("USB") and "Detecting other devices" not in text:
+            # Jedes gemeldete USB-Gerät schiebt den Ring weiter (typisch 20–40 Meldungen)
+            fraction = min(0.9, 0.45 + 0.015 * text.count("HID device connected"))
+            nxt = 0.95
+        return fraction, stage, nxt
+
+    def _detection_finished(self) -> bool:
+        """OpenRGB schreibt „Detection completed“ ins Engine-Log, wenn die Suche ganz fertig ist."""
+        return "Detection completed" in self._read_engine_log()
+
+    def _wait_for_devices(self, timeout: float = 60.0, progress=lambda msg: None,
+                          scan=lambda fraction, stage: None) -> None:
         """Wartet, bis die Geräteerkennung fertig ist.
 
         Mit PawnIO prüft OpenRGB zuerst den Arbeitsspeicher, USB-Geräte (Mainboard, Lüftersteuerung, Tastatur)
@@ -187,14 +222,22 @@ class RGBEngine:
         start = time.monotonic()
         deadline = start + timeout
         prev, since = -1, start
+        shown = 0.0
         while time.monotonic() < deadline:
             count = self.client.controller_count()
             now = time.monotonic()
             if count != prev:
                 prev, since = count, now
-                if count:
-                    progress(tr("Suche RGB-Geräte … {v0} gefunden", v0=count))
-            if self._detection_finished():
+            text = self._read_engine_log()
+            state = self._scan_state(text, now - start)
+            fraction, stage, ceiling = state[0], state[1], state[2] - 0.02
+            # Nie rückwärts; innerhalb eines Abschnitts langsam weiterkriechen, damit der Ring nicht steht
+            shown = max(shown, fraction, min(ceiling, shown + 0.006))
+            if "Detection completed" in text:
+                shown = 1.0
+            self.scan_fraction = shown
+            scan(shown, tr("{v0} · {v1} gefunden", v0=tr(stage), v1=max(count, 0)) if count > 0 else tr(stage))
+            if shown >= 1.0:
                 time.sleep(0.5)  # letzte Registrierungen abwarten
                 break
             if count > 0 and now - since >= (25 if self._log_handle else 12):
@@ -202,6 +245,8 @@ class RGBEngine:
             time.sleep(0.5)
         else:
             log.warning("Geräteerkennung nach %.0f s nicht abgeschlossen, nehme %d Geräte", timeout, prev)
+        self.scan_fraction = 1.0
+        scan(1.0, tr("Fertig"))
         log.info("Geräteerkennung fertig nach %.1f s", time.monotonic() - start)
         self._load_devices()
 

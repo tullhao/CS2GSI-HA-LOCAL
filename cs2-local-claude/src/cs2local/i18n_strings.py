@@ -49,7 +49,19 @@ _T: dict[str, tuple[str, str]] = {
     "Die RGB-Engine wurde unerwartet beendet (Code {v0}). Details: {v1}": (
         "The RGB engine stopped unexpectedly (code {v0}). Details: {v1}",
         "O motor RGB parou inesperadamente (código {v0}). Detalhes: {v1}"),
-    "Suche RGB-Geräte … {v0} gefunden": ("Looking for RGB devices … {v0} found", "Procurando dispositivos RGB … {v0} encontrados"),
+    "{v0} · {v1} gefunden": ("{v0} · {v1} found", "{v0} · {v1} encontrados"),
+    "Suche RGB-Geräte …": ("Searching for RGB devices …", "Procurando dispositivos RGB …"),
+    "Mit RGB-Arbeitsspeicher dauert die Suche etwa 15 Sekunden. Ist der Kreis voll, ist alles gefunden.": (
+        "With RGB memory the search takes about 15 seconds. When the circle is full, everything has been found.",
+        "Com memória RAM RGB a busca leva cerca de 15 segundos. Quando o círculo estiver cheio, tudo foi encontrado."),
+    "Suche startet": ("Starting search", "Iniciando a busca"),
+    "Suche läuft": ("Searching", "Buscando"),
+    "Mainboard-Bus und Arbeitsspeicher": ("Motherboard bus and memory", "Barramento da placa-mãe e memória RAM"),
+    "USB-Geräte (Mainboard, Lüfter, Tastatur, Maus …)": (
+        "USB devices (motherboard, fans, keyboard, mouse …)",
+        "Dispositivos USB (placa-mãe, fans, teclado, mouse …)"),
+    "Weitere Geräte": ("Other devices", "Outros dispositivos"),
+    "Fertig": ("Done", "Concluído"),
     "Eine laufende OpenRGB-Instanz wurde gefunden, verbinde …": (
         "Found a running OpenRGB instance, connecting …",
         "Uma instância do OpenRGB em execução foi encontrada, conectando …"),

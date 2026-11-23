@@ -413,3 +413,71 @@ class FanRings(QWidget):
                     p.setBrush(led_color(i, int(k * self.per / max(1, dots))))
                     p.drawEllipse(QPointF(rect.left() + 8 + k * (rect.width() - 16) / max(1, dots - 1),
                                           rect.center().y()), 2.6, 2.6)
+
+
+# ------------------------------------------------------------------------------------------- Such-Ring
+class ScanRing(QWidget):
+    """Kreis, der sich mit dem Fortschritt der Gerätesuche füllt. Voll = fertig gesucht (grün mit ✓).
+
+    Der Wert gleitet weich zum Ziel; ein kleiner Lichtpunkt läuft am Rand, solange gesucht wird.
+    """
+
+    def __init__(self, size: int = 120, parent=None):
+        super().__init__(parent)
+        self.setFixedSize(size, size)
+        self.target = 0.0
+        self.value = 0.0
+        self.done = False
+        self._timer = QTimer(self)
+        self._timer.timeout.connect(self._step)
+        self._timer.start(30)
+
+    def set_fraction(self, fraction: float) -> None:
+        self.target = max(0.0, min(1.0, fraction))
+        if self.target < self.value - 0.2:  # neue Suche: von vorne
+            self.value = 0.0
+        self.done = False
+        if not self._timer.isActive():
+            self._timer.start(30)
+
+    def _step(self) -> None:
+        self.value += (self.target - self.value) * 0.12
+        if self.target >= 1.0 and self.value > 0.995:
+            self.value, self.done = 1.0, True
+            self._timer.stop()
+        self.update()
+
+    def paintEvent(self, _event):  # noqa: N802
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        side = self.width()
+        thick = max(3.0, side * 0.08)
+        rect = QRectF(thick / 2 + 1, thick / 2 + 1, side - thick - 2, side - thick - 2)
+        color = QColor(theme.OK if self.done else theme.ACCENT)
+        p.setPen(QPen(QColor("#252a34"), thick, Qt.SolidLine, Qt.RoundCap))
+        p.drawEllipse(rect)
+        if self.value > 0.002:
+            p.setPen(QPen(color, thick, Qt.SolidLine, Qt.RoundCap))
+            p.drawArc(rect, 90 * 16, int(-self.value * 360 * 16))
+        if not self.done:  # Lichtpunkt am Ende des Bogens, pulsiert
+            import math
+            angle = math.radians(90 - self.value * 360)
+            r = rect.width() / 2
+            c = rect.center()
+            glow = QColor(theme.ACCENT)
+            glow.setAlphaF(0.35 + 0.35 * math.sin(time.monotonic() * 6))
+            p.setPen(Qt.NoPen)
+            p.setBrush(glow)
+            p.drawEllipse(QPointF(c.x() + r * math.cos(angle), c.y() - r * math.sin(angle)), thick, thick)
+        p.setPen(QColor(theme.OK if self.done else theme.TEXT))
+        font = p.font()
+        if side >= 60:
+            font.setPixelSize(int(side * (0.3 if self.done else 0.22)))
+            font.setBold(True)
+            p.setFont(font)
+            p.drawText(self.rect(), Qt.AlignCenter, "✓" if self.done else f"{int(round(self.value * 100))}%")
+        elif self.done:
+            font.setPixelSize(int(side * 0.45))
+            font.setBold(True)
+            p.setFont(font)
+            p.drawText(self.rect(), Qt.AlignCenter, "✓")
